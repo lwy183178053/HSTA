@@ -27,34 +27,18 @@ TRANSFER_CONFIG="configs/transfer_s.yaml"
 STACK_TLS40_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_tls40_s_seed42
   hybrid_mm_mlp_a_mlp_4block_tls40_s_seed42
-  hybrid_mm_mlp_a_mlp_2block_tls40_s_seed2025
-  hybrid_mm_mlp_a_mlp_4block_tls40_s_seed2025
-  hybrid_mm_mlp_a_mlp_2block_tls40_s_seed3407
-  hybrid_mm_mlp_a_mlp_4block_tls40_s_seed3407
 )
 STACK_QUIC40_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_quic40_s_seed42
   hybrid_mm_mlp_a_mlp_4block_quic40_s_seed42
-  hybrid_mm_mlp_a_mlp_2block_quic40_s_seed2025
-  hybrid_mm_mlp_a_mlp_4block_quic40_s_seed2025
-  hybrid_mm_mlp_a_mlp_2block_quic40_s_seed3407
-  hybrid_mm_mlp_a_mlp_4block_quic40_s_seed3407
 )
 STACK_TLS60_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_tls60_s_seed42
   hybrid_mm_mlp_a_mlp_4block_tls60_s_seed42
-  hybrid_mm_mlp_a_mlp_2block_tls60_s_seed2025
-  hybrid_mm_mlp_a_mlp_4block_tls60_s_seed2025
-  hybrid_mm_mlp_a_mlp_2block_tls60_s_seed3407
-  hybrid_mm_mlp_a_mlp_4block_tls60_s_seed3407
 )
 STACK_QUIC60_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_quic60_s_seed42
   hybrid_mm_mlp_a_mlp_4block_quic60_s_seed42
-  hybrid_mm_mlp_a_mlp_2block_quic60_s_seed2025
-  hybrid_mm_mlp_a_mlp_4block_quic60_s_seed2025
-  hybrid_mm_mlp_a_mlp_2block_quic60_s_seed3407
-  hybrid_mm_mlp_a_mlp_4block_quic60_s_seed3407
 )
 
 run_config() {
@@ -131,12 +115,6 @@ case "${MODE}" in
     run_config "2/2 QUIC60 hybrid block stacking experiments" "configs/quic60_s.yaml" --only "${STACK_QUIC60_EXPS[@]}"
     ;;
   stack_all)
-    run_config "1/4 TLS40 hybrid block stacking experiments" "configs/tls40_s.yaml" --only "${STACK_TLS40_EXPS[@]}"
-    run_config "2/4 QUIC40 hybrid block stacking experiments" "configs/quic40_s.yaml" --only "${STACK_QUIC40_EXPS[@]}"
-    run_config "3/4 TLS60 hybrid block stacking experiments" "configs/tls60_s.yaml" --only "${STACK_TLS60_EXPS[@]}"
-    run_config "4/4 QUIC60 hybrid block stacking experiments" "configs/quic60_s.yaml" --only "${STACK_QUIC60_EXPS[@]}"
-    ;;
-  stack_all_3seed)
     run_config "1/4 TLS40 hybrid block stacking experiments" "configs/tls40_s.yaml" --only "${STACK_TLS40_EXPS[@]}"
     run_config "2/4 QUIC40 hybrid block stacking experiments" "configs/quic40_s.yaml" --only "${STACK_QUIC40_EXPS[@]}"
     run_config "3/4 TLS60 hybrid block stacking experiments" "configs/tls60_s.yaml" --only "${STACK_TLS60_EXPS[@]}"
@@ -219,7 +197,7 @@ case "${MODE}" in
     ;;
   *)
     echo "Unknown mode: ${MODE}"
-    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation60, seed40, seed60, stack40, stack60, stack_all, stack_all_3seed, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
+    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation60, seed40, seed60, stack40, stack60, stack_all, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
     exit 1
     ;;
 esac

@@ -6,6 +6,12 @@ Mamba 模块依赖官方 `mamba-ssm`，建议在 WSL/Linux CUDA 环境运行。�
 
 ## Python 环境
 
+快速检查当前 Windows/WSL/Python 环境：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
+```
+
 当前 PyCharm 项目使用的解释器是 Anaconda 的 `mybase` 环境：
 
 ```powershell
@@ -30,6 +36,8 @@ WSL 批处理脚本默认使用：
 ```bash
 source /opt/traffic-mamba-venv/bin/activate
 ```
+
+WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docker-desktop` 作为项目 shell；`traffic-ubuntu-22.04` 可以看到项目路径，但没有 `/opt/traffic-mamba-venv`。
 
 ## 安装依赖
 
@@ -191,10 +199,9 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 | `ablation60` | TLS60/QUIC60 的 60 类消融实验 |
 | `seed40` | TLS40/QUIC40 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
 | `seed60` | TLS60/QUIC60 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
-| `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block 三随机种子堆叠实验 |
-| `stack60` | TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block 三随机种子堆叠实验 |
-| `stack_all` | TLS40/QUIC40/TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block 三随机种子堆叠实验 |
-| `stack_all_3seed` | `stack_all` 的同内容别名，日志单独写入 `wsl_stack_all_3seed_*` |
+| `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
+| `stack60` | TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
+| `stack_all` | TLS40/QUIC40/TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
 | `efficiency` | 对已有 `best.pt` 做 FLOPs 和推理时间实验，输出 `results/efficiency_benchmark` |
 | `efficiency_quick` | 小迭代快速检查版，输出 `results/efficiency_benchmark_quick` |
 | `transfer40` | top-40 LoRA 迁移 |

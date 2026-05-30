@@ -73,30 +73,6 @@ experiments:
     model_cfg:
       layout: [mamba, mamba, mlp, attention, mlp]
       block_repeats: 4
-  - exp_name: hybrid_mm_mlp_a_mlp_2block_quic40_s_seed2025
-    model: hybrid
-    seed: 2025
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 2
-  - exp_name: hybrid_mm_mlp_a_mlp_4block_quic40_s_seed2025
-    model: hybrid
-    seed: 2025
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 4
-  - exp_name: hybrid_mm_mlp_a_mlp_2block_quic40_s_seed3407
-    model: hybrid
-    seed: 3407
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 2
-  - exp_name: hybrid_mm_mlp_a_mlp_4block_quic40_s_seed3407
-    model: hybrid
-    seed: 3407
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 4
   - exp_name: hybrid_mm_mlp_a_mlp_quic40_s_seed2025
     model: hybrid
     seed: 2025
