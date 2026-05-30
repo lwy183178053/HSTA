@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+.venv/
+venv/
+.env
+
+# Local experiment outputs and paper drafts.
+results/
+logs/
+paper/
+
+# Keep Python code under data/, but ignore local datasets and generated data files.
+data/**
+!data/
+!data/**/*.py
+
+# Common large ML artifacts.
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.npz
+*.zip
