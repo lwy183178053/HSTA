@@ -1,0 +1,108 @@
+base:
+  output_dir: results/transfer_s
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model: hybrid
+  model_cfg:
+    dim: 128
+    hidden: 128
+    depth: 5
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 256
+    layout: [mamba, mamba, mlp, attention, mlp]
+
+experiments:
+  - exp_name: hybrid_lora_tls_to_quic40_s
+    model: hybrid_lora
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    pretrained_path: results/tls40_s/hybrid_mm_mlp_a_mlp_tls40_s_seed42/best.pt
+    reset_head: true
+    model_cfg:
+      lora: true
+      r: 8
+      alpha: 16
+      freeze_backbone: true
+  - exp_name: hybrid_lora_quic_to_tls40_s
+    model: hybrid_lora
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    pretrained_path: results/quic40_s/hybrid_mm_mlp_a_mlp_quic40_s_seed42/best.pt
+    reset_head: true
+    model_cfg:
+      lora: true
+      r: 8
+      alpha: 16
+      freeze_backbone: true
+  - exp_name: hybrid_lora_tls_to_quic60_s
+    model: hybrid_lora
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    pretrained_path: results/tls60_s/hybrid_mm_mlp_a_mlp_tls60_s_seed42/best.pt
+    reset_head: true
+    model_cfg:
+      lora: true
+      r: 8
+      alpha: 16
+      freeze_backbone: true
+  - exp_name: hybrid_lora_quic_to_tls60_s
+    model: hybrid_lora
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    pretrained_path: results/quic60_s/hybrid_mm_mlp_a_mlp_quic60_s_seed42/best.pt
+    reset_head: true
+    model_cfg:
+      lora: true
+      r: 8
+      alpha: 16
+      freeze_backbone: true
+
+  - exp_name: zero_shot_tls_to_quic40_s
+    source_csv: data/processed/datazoo_tls40_s_seq30.csv
+    target_csv: data/processed/datazoo_quic40_s_seq30.csv
+    source_checkpoint: results/tls40_s/hybrid_mm_mlp_a_mlp_tls40_s_seed42/best.pt
+  - exp_name: zero_shot_quic_to_tls40_s
+    source_csv: data/processed/datazoo_quic40_s_seq30.csv
+    target_csv: data/processed/datazoo_tls40_s_seq30.csv
+    source_checkpoint: results/quic40_s/hybrid_mm_mlp_a_mlp_quic40_s_seed42/best.pt
+  - exp_name: zero_shot_tls_to_quic60_s
+    source_csv: data/processed/datazoo_tls60_s_seq30.csv
+    target_csv: data/processed/datazoo_quic60_s_seq30.csv
+    source_checkpoint: results/tls60_s/hybrid_mm_mlp_a_mlp_tls60_s_seed42/best.pt
+  - exp_name: zero_shot_quic_to_tls60_s
+    source_csv: data/processed/datazoo_quic60_s_seq30.csv
+    target_csv: data/processed/datazoo_tls60_s_seq30.csv
+    source_checkpoint: results/quic60_s/hybrid_mm_mlp_a_mlp_quic60_s_seed42/best.pt
+
+  - exp_name: full_ft_tls_to_quic40_s
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    pretrained_path: results/tls40_s/hybrid_mm_mlp_a_mlp_tls40_s_seed42/best.pt
+    reset_head: true
+  - exp_name: full_ft_quic_to_tls40_s
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    pretrained_path: results/quic40_s/hybrid_mm_mlp_a_mlp_quic40_s_seed42/best.pt
+    reset_head: true
+  - exp_name: full_ft_tls_to_quic60_s
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    pretrained_path: results/tls60_s/hybrid_mm_mlp_a_mlp_tls60_s_seed42/best.pt
+    reset_head: true
+  - exp_name: full_ft_quic_to_tls60_s
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    pretrained_path: results/quic60_s/hybrid_mm_mlp_a_mlp_quic60_s_seed42/best.pt
+    reset_head: true
