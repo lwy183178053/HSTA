@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 
 
 META_COLS = {"flow_id", "label", "split", "pkt_index"}
+# Packet size, direction, and packet inter-arrival time features.
 DEFAULT_TRAFFIC_FEATURES = ["size", "direction", "delta_time"]
 
 
@@ -146,13 +147,14 @@ def _scale_from_train(X_train: np.ndarray, *others: np.ndarray):
 def make_loaders(
     csv_path: str | Path,
     seq_len: int = 30,
+    feature_cols: list[str] | None = None,
     batch_size: int = 256,
     test_size: float = 0.2,
     val_size: float = 0.1,
     seed: int = 42,
     num_workers: int = 0,
 ):
-    data = load_sequence_csv(csv_path, seq_len=seq_len)
+    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols)
     split = _split_by_column(data)
     if split is None:
         split = _stratified_split(data.X, data.y, test_size=test_size, val_size=val_size, seed=seed)

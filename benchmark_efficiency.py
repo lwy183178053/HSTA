@@ -15,7 +15,7 @@ import torch.nn as nn
 import yaml
 
 from models import build_model
-from utils import count_parameters, ensure_dir, save_json, seed_everything
+from utils import count_parameters, deep_merge, ensure_dir, save_json, seed_everything
 
 
 DEFAULT_CONFIGS = [
@@ -23,9 +23,10 @@ DEFAULT_CONFIGS = [
     "configs/quic40_s.yaml",
     "configs/tls60_s.yaml",
     "configs/quic60_s.yaml",
+    "configs/sota_adapted.yaml",
 ]
 
-CORE_MODELS = {"transformer", "mamba", "hybrid"}
+CORE_MODELS = {"transformer", "mamba", "hybrid", "30pktTCNET-adapted", "NetMamba-adapted"}
 
 REPEATED_METRICS = [
     "latency_ms_mean",
@@ -143,16 +144,6 @@ def _read_yaml(path: str | Path) -> dict:
         return yaml.safe_load(handle)
 
 
-def _merge(base: dict, update: dict) -> dict:
-    result = dict(base or {})
-    for key, value in (update or {}).items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = _merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def discover_experiments(config_paths: list[str], only: set[str] | None, checkpoint_name: str) -> list[dict]:
     discovered = []
     for config_path in config_paths:
@@ -168,8 +159,8 @@ def discover_experiments(config_paths: list[str], only: set[str] | None, checkpo
 
         base = cfg["base"]
         for exp in cfg.get("experiments", []):
-            merged = _merge(base, exp)
-            merged["model_cfg"] = _merge(base.get("model_cfg", {}), exp.get("model_cfg", {}))
+            merged = deep_merge(base, exp)
+            merged["model_cfg"] = deep_merge(base.get("model_cfg", {}), exp.get("model_cfg", {}))
             exp_name = merged["exp_name"]
             if only and exp_name not in only:
                 continue
@@ -339,6 +330,13 @@ def _task_from_config(config_path: str) -> str:
     return Path(config_path).stem
 
 
+def _task_from_exp_name(exp_name: str) -> str | None:
+    for task in ("tls40_s", "quic40_s", "tls60_s", "quic60_s"):
+        if task in exp_name:
+            return task
+    return None
+
+
 def _dataset_from_task(task: str) -> str:
     task_lower = task.lower()
     if task_lower.startswith("tls"):
@@ -418,6 +416,36 @@ def _aggregate_repeats(base_row: dict[str, Any], repeat_rows: list[dict[str, Any
     return row
 
 
+def _merge_existing_dataframe(path: Path, new_df: pd.DataFrame, replace_exp_names: set[str]) -> pd.DataFrame:
+    if path.exists():
+        old_df = pd.read_csv(path)
+        if "exp_name" in old_df.columns:
+            old_df = old_df[~old_df["exp_name"].isin(replace_exp_names)]
+        return pd.concat([old_df, new_df], ignore_index=True, sort=False)
+    return new_df
+
+
+def _merge_existing_payload(output_dir: Path, payload: dict[str, Any], replace_exp_names: set[str]) -> dict[str, Any]:
+    path = output_dir / "benchmark_results.json"
+    if not path.exists():
+        return payload
+    with path.open("r", encoding="utf-8-sig") as handle:
+        old_payload = json.load(handle)
+    merged = dict(old_payload)
+    merged["settings"] = payload["settings"]
+    merged["resolved_device"] = payload["resolved_device"]
+    for key in ("results", "repeat_results", "details", "skipped"):
+        old_rows = old_payload.get(key, []) or []
+        if key in {"results", "repeat_results", "details"}:
+            old_rows = [
+                row
+                for row in old_rows
+                if not (isinstance(row, dict) and row.get("exp_name") in replace_exp_names)
+            ]
+        merged[key] = old_rows + (payload.get(key, []) or [])
+    return merged
+
+
 def run(args) -> None:
     if args.warmup < 0:
         raise ValueError("--warmup must be >= 0")
@@ -467,7 +495,7 @@ def run(args) -> None:
         base_layout = model_cfg.get("layout", [])
         block_repeats = int(model_cfg.get("block_repeats", 1))
         hybrid_layers = len(base_layout) * block_repeats if base_layout else 0
-        task = _task_from_config(item["config_path"])
+        task = _task_from_exp_name(item["exp_name"]) or _task_from_config(item["config_path"])
         dataset = _dataset_from_task(task)
         seed = _seed_from_exp_name(item["exp_name"])
         variant = _variant_from_exp_name(item["exp_name"])
@@ -540,7 +568,11 @@ def run(args) -> None:
 
     df = pd.DataFrame(rows)
     repeat_df = pd.DataFrame(repeat_rows)
+    replace_exp_names = set(df["exp_name"].astype(str)) if not df.empty and "exp_name" in df.columns else set()
     if not df.empty:
+        if args.merge_existing:
+            df = _merge_existing_dataframe(output_dir / "benchmark_results.csv", df, replace_exp_names)
+            repeat_df = _merge_existing_dataframe(output_dir / "benchmark_repeats.csv", repeat_df, replace_exp_names)
         df.to_csv(output_dir / "benchmark_results.csv", index=False)
         repeat_df.to_csv(output_dir / "benchmark_repeats.csv", index=False)
         summary_cols = [
@@ -580,10 +612,19 @@ def run(args) -> None:
         ].sort_values(["task", "batch_size", "model"])
         core_summary.to_csv(output_dir / "core_model_efficiency.csv", index=False)
     else:
-        df.to_csv(output_dir / "benchmark_results.csv", index=False)
-        repeat_df.to_csv(output_dir / "benchmark_repeats.csv", index=False)
-        pd.DataFrame().to_csv(output_dir / "summary.csv", index=False)
-        pd.DataFrame().to_csv(output_dir / "core_model_efficiency.csv", index=False)
+        existing_csvs = [
+            output_dir / "benchmark_results.csv",
+            output_dir / "benchmark_repeats.csv",
+            output_dir / "summary.csv",
+            output_dir / "core_model_efficiency.csv",
+        ]
+        if args.merge_existing and any(path.exists() for path in existing_csvs):
+            print("[merge-existing] no new benchmark rows; preserving existing CSV outputs.")
+        else:
+            df.to_csv(output_dir / "benchmark_results.csv", index=False)
+            repeat_df.to_csv(output_dir / "benchmark_repeats.csv", index=False)
+            pd.DataFrame().to_csv(output_dir / "summary.csv", index=False)
+            pd.DataFrame().to_csv(output_dir / "core_model_efficiency.csv", index=False)
 
     payload = {
         "settings": vars(args),
@@ -598,6 +639,8 @@ def run(args) -> None:
         "details": details,
         "skipped": skipped,
     }
+    if args.merge_existing and (replace_exp_names or (output_dir / "benchmark_results.json").exists()):
+        payload = _merge_existing_payload(output_dir, payload, replace_exp_names)
     save_json(payload, output_dir / "benchmark_results.json")
     notes = [
         "# Efficiency Benchmark",
@@ -608,7 +651,7 @@ def run(args) -> None:
         "- `benchmark_results.csv`: per experiment and batch-size averaged latency/FLOPs rows.",
         "- `benchmark_repeats.csv`: raw rows from each repeated benchmark run.",
         "- `summary.csv`: compact sortable full-model table.",
-        "- `core_model_efficiency.csv`: Transformer/Mamba/Hybrid seed42 table across the four main tasks.",
+        "- `core_model_efficiency.csv`: seed42 core/adapted model table across the four main tasks.",
         "- `benchmark_results.json`: full metadata and FLOPs breakdown.",
         "",
         "FLOPs convention: one multiply-add is counted as 2 FLOPs. MACs are reported as FLOPs / 2.",
@@ -644,6 +687,7 @@ def parse_args():
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-mamba-scan-estimate", action="store_true")
+    parser.add_argument("--merge-existing", action="store_true", help="Replace matching exp_name rows while preserving other benchmark rows in the output directory.")
     return parser.parse_args()
 
 

@@ -1,4 +1,5 @@
 from .cnn import CNN1DClassifier
+from .adapted_sota import NetMambaAdapted, PktTCNetAdapted
 from .hybrid_mm_mlp_a_mlp import HybridMMMLPAMLP
 from .lstm import RNNClassifier
 from .mamba_model import MambaClassifier
@@ -8,7 +9,7 @@ from .transformer import TrafficTransformer
 
 def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: dict):
     cfg = dict(cfg or {})
-    name = name.lower()
+    name = name.lower().replace("-", "_")
     common_depth = int(cfg.get("depth", 5))
     if name == "mlp":
         return MLPClassifier(
@@ -57,6 +58,29 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             dim=int(cfg.get("dim", 128)),
             depth=common_depth,
             dropout=float(cfg.get("dropout", 0.1)),
+            d_state=int(cfg.get("d_state", 16)),
+            d_conv=int(cfg.get("d_conv", 4)),
+            expand=int(cfg.get("expand", 2)),
+            max_len=int(cfg.get("max_len", max(seq_len, 256))),
+            pooling=str(cfg.get("pooling", "mean")),
+        )
+    if name in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
+        return PktTCNetAdapted(
+            input_dim,
+            num_classes,
+            channels=int(cfg.get("channels", cfg.get("hidden", 128))),
+            depth=common_depth,
+            kernel_size=int(cfg.get("kernel_size", 3)),
+            dropout=float(cfg.get("dropout", 0.15)),
+            classifier_hidden=int(cfg.get("classifier_hidden", cfg.get("hidden", 128))),
+        )
+    if name in {"netmamba_adapted", "net_mamba_adapted"}:
+        return NetMambaAdapted(
+            input_dim,
+            num_classes,
+            dim=int(cfg.get("dim", 128)),
+            depth=common_depth,
+            dropout=float(cfg.get("dropout", 0.15)),
             d_state=int(cfg.get("d_state", 16)),
             d_conv=int(cfg.get("d_conv", 4)),
             expand=int(cfg.get("expand", 2)),

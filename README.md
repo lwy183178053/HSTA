@@ -4,6 +4,8 @@
 
 Mamba 模块依赖官方 `mamba-ssm`，建议在 WSL/Linux CUDA 环境运行。普通数据检查、CSV 预处理和非 Mamba 脚本也可以在 Windows 的 Anaconda 环境中运行。
 
+项目还包含两个 SOTA/先进结构对比模型：`30pktTCNET-adapted` 和 `NetMamba-adapted`。它们都是 adapted to our packet-level side-channel input setting，使用相同的 `[B, 30, 3]` packet size, direction, and packet inter-arrival time features，并不是原论文完整输入管线的复现。
+
 ## Python 环境
 
 快速检查当前 Windows/WSL/Python 环境：
@@ -49,7 +51,7 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 
 ## 准备 DataZoo S CSV
 
-默认导出 TLS/QUIC 的 top-40 和 top-60 类，每条 flow 取前 30 个包，每包特征为 `size`、`direction`、`delta_time`。
+默认导出 TLS/QUIC 的 top-40 和 top-60 类，每条 flow 取前 30 个包，每包特征为 `size`、`direction`、`delta_time`，也就是 packet size, direction, and packet inter-arrival time features。
 
 ```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --project-root . --topk 40
@@ -130,12 +132,15 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 
 | 配置 | 作用 | 输出目录 |
 | --- | --- | --- |
-| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Mamba/Hybrid/消融共 10 个实验 | `results/tls40_s` |
+| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Mamba/Hybrid/消融实验 | `results/tls40_s` |
 | `configs/quic40_s.yaml` | QUIC top-40，模型集合同 TLS40 | `results/quic40_s` |
 | `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Mamba/Hybrid/消融，以及 Transformer/Mamba/Hybrid 的多 seed 主实验 | `results/tls60_s` |
-| `configs/quic60_s.yaml` | QUIC top-60，GRU/Transformer/Mamba/Hybrid/消融，以及 Transformer/Mamba/Hybrid 的多 seed 主实验 | `results/quic60_s` |
+| `configs/quic60_s.yaml` | QUIC top-60，模型集合同 TLS60 | `results/quic60_s` |
+| `configs/sota_adapted.yaml` | `30pktTCNET-adapted` 和 `NetMamba-adapted` 的 TLS/QUIC、40/60 类三 seed 对比实验 | `results/sota_adapted` |
 | `configs/transfer_s.yaml` | top-40/top-60 的 LoRA、zero-shot、full fine-tune 迁移合集 | `results/transfer_s` |
 | `configs/base.yaml` | 公共超参数模板，不是批量实验配置 | 无 |
+
+配置可以在 `base` 或单个实验里指定 `feature_cols`，例如 `feature_cols: [size, direction, delta_time]`。不指定时保持默认列 `size`、`direction`、`delta_time`，对应 packet size, direction, and packet inter-arrival time features；如果改成 `pkt_index` 等其他列，属于新的输入口径，已有 checkpoint 和结果需要对应重跑。
 
 ## 推荐运行顺序
 
@@ -202,6 +207,10 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 | `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
 | `stack60` | TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
 | `stack_all` | TLS40/QUIC40/TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
+| `sota40` | TLS40/QUIC40 的 30pktTCNET-adapted 和 NetMamba-adapted 三 seed 对比实验 |
+| `sota60` | TLS60/QUIC60 的 30pktTCNET-adapted 和 NetMamba-adapted 三 seed 对比实验 |
+| `sota_all` | TLS40/QUIC40/TLS60/QUIC60 的 adapted SOTA 三 seed 对比实验 |
+| `sota_efficiency` | 只对 adapted SOTA 的 `best.pt` 做 FLOPs 和推理时间实验，输出到统一的 `results/efficiency_benchmark` |
 | `efficiency` | 对已有 `best.pt` 做 FLOPs 和推理时间实验，输出 `results/efficiency_benchmark` |
 | `efficiency_quick` | 小迭代快速检查版，输出 `results/efficiency_benchmark_quick` |
 | `transfer40` | top-40 LoRA 迁移 |
@@ -234,7 +243,7 @@ Get-Process | Where-Object { $_.ProcessName -like '*wsl*' -or $_.ProcessName -li
 
 ## FLOPs 与推理时间实验
 
-独立脚本为 `benchmark_efficiency.py`，默认扫描 TLS40、QUIC40、TLS60、QUIC60 四个配置中已经存在的所有模型 `best.pt`。缺失 checkpoint 的实验会跳过，结果统一写入 `results/efficiency_benchmark`。
+独立脚本为 `benchmark_efficiency.py`，默认扫描 TLS40、QUIC40、TLS60、QUIC60 和 adapted SOTA 配置中已经存在的所有模型 `best.pt`。缺失 checkpoint 的实验会跳过，结果统一写入 `results/efficiency_benchmark`。
 
 ```powershell
 wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh efficiency"
@@ -268,7 +277,7 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 - `results/efficiency_benchmark/benchmark_results.csv`：逐实验、逐 batch 的多次重复均值结果。
 - `results/efficiency_benchmark/benchmark_repeats.csv`：每次重复的原始结果，用于查看波动。
 - `results/efficiency_benchmark/summary.csv`：全模型效率简表。
-- `results/efficiency_benchmark/core_model_efficiency.csv`：Transformer、Mamba、Hybrid seed42 在四个任务上的核心对比表。
+- `results/efficiency_benchmark/core_model_efficiency.csv`：核心模型和 adapted SOTA seed42 在四个任务上的对比表。
 - `results/efficiency_benchmark/benchmark_results.json`：包含参数、跳过项和 FLOPs 分项。
 - `results/efficiency_benchmark/README.md`：本次 benchmark 的设置说明。
 
@@ -290,11 +299,17 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 
 迁移实验统一放在 `results/transfer_s`，包括 LoRA、zero-shot 和 full fine-tune 的 40/60 类所有实验目录。
 
-60 类主模型的多 seed 命名规则：
+adapted SOTA 实验统一放在 `results/sota_adapted`，不再额外套任务子目录；每个实验目录名本身包含任务名：
+
+- `results/sota_adapted/all_results.csv`：四个任务的 SOTA 总汇总，使用 `exp_name` 区分任务。
+- `results/sota_adapted/<exp_name>/`：每个 SOTA 实验自己的 checkpoint、history、summary 和 metrics。
+
+主模型和 adapted SOTA 的多 seed 命名规则：
 
 - 原始 seed 42 结果统一命名为 `*_seed42`。
 - 新增补充 seed 为 `seed2025` 和 `seed3407`。
-- 涉及模型为 Transformer、Mamba 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid。
+- 主模型涉及 Transformer、Mamba 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid。
+- adapted SOTA 涉及 `30pktTCNET-adapted` 和 `NetMamba-adapted`。
 
 只跑 60 类多 seed 补充实验：
 

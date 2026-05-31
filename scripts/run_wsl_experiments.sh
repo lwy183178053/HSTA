@@ -24,6 +24,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 export NUMEXPR_MAX_THREADS="${NUMEXPR_MAX_THREADS:-4}"
 TRANSFER_CONFIG="configs/transfer_s.yaml"
+SOTA_CONFIG="configs/sota_adapted.yaml"
 STACK_TLS40_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_tls40_s_seed42
   hybrid_mm_mlp_a_mlp_4block_tls40_s_seed42
@@ -39,6 +40,44 @@ STACK_TLS60_EXPS=(
 STACK_QUIC60_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_quic60_s_seed42
   hybrid_mm_mlp_a_mlp_4block_quic60_s_seed42
+)
+SOTA_TLS40_EXPS=(
+  30pkttcnet_adapted_tls40_s_seed42
+  30pkttcnet_adapted_tls40_s_seed2025
+  30pkttcnet_adapted_tls40_s_seed3407
+  netmamba_adapted_tls40_s_seed42
+  netmamba_adapted_tls40_s_seed2025
+  netmamba_adapted_tls40_s_seed3407
+)
+SOTA_QUIC40_EXPS=(
+  30pkttcnet_adapted_quic40_s_seed42
+  30pkttcnet_adapted_quic40_s_seed2025
+  30pkttcnet_adapted_quic40_s_seed3407
+  netmamba_adapted_quic40_s_seed42
+  netmamba_adapted_quic40_s_seed2025
+  netmamba_adapted_quic40_s_seed3407
+)
+SOTA_TLS60_EXPS=(
+  30pkttcnet_adapted_tls60_s_seed42
+  30pkttcnet_adapted_tls60_s_seed2025
+  30pkttcnet_adapted_tls60_s_seed3407
+  netmamba_adapted_tls60_s_seed42
+  netmamba_adapted_tls60_s_seed2025
+  netmamba_adapted_tls60_s_seed3407
+)
+SOTA_QUIC60_EXPS=(
+  30pkttcnet_adapted_quic60_s_seed42
+  30pkttcnet_adapted_quic60_s_seed2025
+  30pkttcnet_adapted_quic60_s_seed3407
+  netmamba_adapted_quic60_s_seed42
+  netmamba_adapted_quic60_s_seed2025
+  netmamba_adapted_quic60_s_seed3407
+)
+SOTA_ALL_EXPS=(
+  "${SOTA_TLS40_EXPS[@]}"
+  "${SOTA_QUIC40_EXPS[@]}"
+  "${SOTA_TLS60_EXPS[@]}"
+  "${SOTA_QUIC60_EXPS[@]}"
 )
 
 run_config() {
@@ -120,6 +159,18 @@ case "${MODE}" in
     run_config "3/4 TLS60 hybrid block stacking experiments" "configs/tls60_s.yaml" --only "${STACK_TLS60_EXPS[@]}"
     run_config "4/4 QUIC60 hybrid block stacking experiments" "configs/quic60_s.yaml" --only "${STACK_QUIC60_EXPS[@]}"
     ;;
+  sota40)
+    run_config "TLS40/QUIC40 adapted SOTA comparison experiments, seeds 42/2025/3407" "${SOTA_CONFIG}" --only "${SOTA_TLS40_EXPS[@]}" "${SOTA_QUIC40_EXPS[@]}"
+    ;;
+  sota60)
+    run_config "TLS60/QUIC60 adapted SOTA comparison experiments, seeds 42/2025/3407" "${SOTA_CONFIG}" --only "${SOTA_TLS60_EXPS[@]}" "${SOTA_QUIC60_EXPS[@]}"
+    ;;
+  sota_all)
+    run_config "TLS40/QUIC40/TLS60/QUIC60 adapted SOTA comparison experiments, seeds 42/2025/3407" "${SOTA_CONFIG}" --only "${SOTA_ALL_EXPS[@]}"
+    ;;
+  sota_efficiency)
+    run_efficiency "Adapted SOTA FLOPs and inference latency benchmark" --configs "${SOTA_CONFIG}" --output-dir results/efficiency_benchmark --merge-existing --only "${SOTA_ALL_EXPS[@]}" "$@"
+    ;;
   efficiency)
     run_efficiency "FLOPs and inference latency benchmark" --output-dir results/efficiency_benchmark "$@"
     ;;
@@ -197,7 +248,7 @@ case "${MODE}" in
     ;;
   *)
     echo "Unknown mode: ${MODE}"
-    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation60, seed40, seed60, stack40, stack60, stack_all, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
+    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation60, seed40, seed60, stack40, stack60, stack_all, sota40, sota60, sota_all, sota_efficiency, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
     exit 1
     ;;
 esac
@@ -210,6 +261,7 @@ echo "QUIC40 results: results/quic40_s/all_results.csv"
 echo "TLS60 results:  results/tls60_s/all_results.csv"
 echo "QUIC60 results: results/quic60_s/all_results.csv"
 echo "Transfer results: results/transfer_s/all_results.csv"
+echo "SOTA results:     results/sota_adapted/all_results.csv"
 echo "Efficiency results: results/efficiency_benchmark/benchmark_results.csv"
 echo "Log: ${LOG}"
 echo "============================================================"

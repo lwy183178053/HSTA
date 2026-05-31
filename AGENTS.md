@@ -67,3 +67,21 @@ Run this from PowerShell when unsure:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
 ```
+
+## Results Layout
+
+Main task results stay under:
+
+- `results/tls40_s`
+- `results/quic40_s`
+- `results/tls60_s`
+- `results/quic60_s`
+
+Adapted SOTA comparisons are configured separately in `configs/sota_adapted.yaml` and should stay under:
+
+- `results/sota_adapted/all_results.csv`
+- `results/sota_adapted/<exp_name>`
+
+Efficiency benchmark results, including adapted SOTA rows, should stay in `results/efficiency_benchmark`.
+
+Use `bash scripts/run_wsl_experiments.sh sota_all` for the two adapted SOTA models across all four tasks and three seeds.

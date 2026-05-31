@@ -162,6 +162,7 @@ def train_one(cfg: dict):
     loaders = make_loaders(
         cfg["data_csv"],
         seq_len=int(cfg.get("seq_len", 30)),
+        feature_cols=cfg.get("feature_cols"),
         batch_size=int(cfg.get("batch_size", 256)),
         test_size=float(cfg.get("test_size", 0.2)),
         val_size=float(cfg.get("val_size", 0.1)),
@@ -175,6 +176,9 @@ def train_one(cfg: dict):
         seq_len=loaders["seq_len"],
         cfg=cfg.get("model_cfg", {}),
     ).to(device)
+    adapted_note = str(getattr(model, "adapted_note", ""))
+    if adapted_note:
+        print(f"[model] {adapted_note}")
     best_path = output_dir / "best.pt"
     latest_path = output_dir / "latest.pt"
     summary_path = output_dir / "summary.csv"
@@ -439,6 +443,8 @@ def train_one(cfg: dict):
         "seconds": float(previous_seconds + time.time() - start),
         **{f"test_{key}": value for key, value in test_metrics.items()},
     }
+    if adapted_note:
+        result["adapted_note"] = adapted_note
     save_json(
         {
             "result": result,

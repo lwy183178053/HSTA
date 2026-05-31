@@ -70,8 +70,15 @@ def _split_data(data, test_size: float, val_size: float, seed: int):
     return split
 
 
-def _source_scaler(csv_path: str | Path, seq_len: int, test_size: float, val_size: float, seed: int):
-    data = load_sequence_csv(csv_path, seq_len=seq_len)
+def _source_scaler(
+    csv_path: str | Path,
+    seq_len: int,
+    test_size: float,
+    val_size: float,
+    seed: int,
+    feature_cols: list[str] | None = None,
+):
+    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols)
     X_train, _, _, _, _, _ = _split_data(data, test_size=test_size, val_size=val_size, seed=seed)
     _, scaler = _scale_from_train(X_train)
     return scaler
@@ -86,8 +93,9 @@ def _target_test_loader(
     val_size: float,
     seed: int,
     num_workers: int,
+    feature_cols: list[str] | None = None,
 ):
-    data = load_sequence_csv(csv_path, seq_len=seq_len)
+    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols)
     _, _, _, _, X_test, y_test = _split_data(data, test_size=test_size, val_size=val_size, seed=seed)
     n, seq_len_actual, dim = X_test.shape
     X_test = scaler.transform(X_test.reshape(-1, dim)).astype("float32").reshape(n, seq_len_actual, dim)
@@ -111,6 +119,9 @@ def zero_shot_one(cfg: dict):
     val_size = float(cfg.get("val_size", 0.1))
     seed = int(cfg.get("seed", 42))
     num_workers = int(cfg.get("num_workers", 0))
+    feature_cols = cfg.get("feature_cols")
+    source_feature_cols = cfg.get("source_feature_cols", feature_cols)
+    target_feature_cols = cfg.get("target_feature_cols", feature_cols)
 
     checkpoint_path = Path(cfg["source_checkpoint"])
     if not checkpoint_path.exists():
@@ -120,7 +131,14 @@ def zero_shot_one(cfg: dict):
     if not source_classes:
         raise ValueError(f"Checkpoint does not include classes: {checkpoint_path}")
 
-    scaler = _source_scaler(cfg["source_csv"], seq_len=seq_len, test_size=test_size, val_size=val_size, seed=seed)
+    scaler = _source_scaler(
+        cfg["source_csv"],
+        seq_len=seq_len,
+        test_size=test_size,
+        val_size=val_size,
+        seed=seed,
+        feature_cols=source_feature_cols,
+    )
     target_loader, target_classes, input_dim, target_seq_len = _target_test_loader(
         cfg["target_csv"],
         scaler=scaler,
@@ -130,6 +148,7 @@ def zero_shot_one(cfg: dict):
         val_size=val_size,
         seed=seed,
         num_workers=num_workers,
+        feature_cols=target_feature_cols,
     )
 
     model = build_model(
@@ -216,16 +235,24 @@ def main():
     rows = []
     row_output_dirs = []
     selected = set(args.only or [])
+    configured = []
     configured_names = set()
     configured_names_by_output_dir = {}
     for exp in cfg["experiments"]:
         merged = deep_merge(copy.deepcopy(base), exp)
         merged["model_cfg"] = deep_merge(base.get("model_cfg", {}), exp.get("model_cfg", {}))
+        configured.append(merged)
         configured_names.add(merged["exp_name"])
         exp_output_dir = str(Path(merged.get("output_dir", base.get("output_dir", "results"))))
         configured_names_by_output_dir.setdefault(exp_output_dir, set()).add(merged["exp_name"])
+    unknown = selected - configured_names
+    if unknown:
+        raise ValueError(f"Unknown --only experiment name(s): {', '.join(sorted(unknown))}")
+
+    for merged in configured:
         if selected and merged["exp_name"] not in selected:
             continue
+        exp_output_dir = str(Path(merged.get("output_dir", base.get("output_dir", "results"))))
         merged["resume"] = bool(args.resume and not args.force)
         merged["extend_training"] = bool(args.extend)
         run_kind = "ZERO-SHOT" if _is_zero_shot(merged) else "RUN"
