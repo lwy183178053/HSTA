@@ -426,6 +426,7 @@ def train_one(cfg: dict):
     result = {
         "exp_name": cfg["exp_name"],
         "model": cfg["model"],
+        "seed": int(cfg.get("seed", 42)),
         "layout": "|".join(expanded_layout),
         "block_repeats": block_repeats,
         "hybrid_layers": len(expanded_layout),

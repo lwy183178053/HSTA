@@ -82,6 +82,12 @@ Adapted SOTA comparisons are configured separately in `configs/sota_adapted.yaml
 - `results/sota_adapted/all_results.csv`
 - `results/sota_adapted/<exp_name>`
 
+Hybrid ablation comparisons are configured separately in `configs/ablation_s.yaml` and should stay under:
+
+- `results/ablation_s/all_results.csv`
+- `results/ablation_s/<exp_name>`
+
 Efficiency benchmark results, including adapted SOTA rows, should stay in `results/efficiency_benchmark`.
 
 Use `bash scripts/run_wsl_experiments.sh sota_all` for the two adapted SOTA models across all four tasks and three seeds.
+Use `bash scripts/run_wsl_experiments.sh ablation_all` for Hybrid ablation variants across all four tasks and three seeds.

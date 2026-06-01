@@ -132,10 +132,11 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 
 | 配置 | 作用 | 输出目录 |
 | --- | --- | --- |
-| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Mamba/Hybrid/消融实验 | `results/tls40_s` |
+| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Mamba/Hybrid 主实验 | `results/tls40_s` |
 | `configs/quic40_s.yaml` | QUIC top-40，模型集合同 TLS40 | `results/quic40_s` |
-| `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Mamba/Hybrid/消融，以及 Transformer/Mamba/Hybrid 的多 seed 主实验 | `results/tls60_s` |
+| `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Mamba/Hybrid，以及 Transformer/Mamba/Hybrid 的多 seed 主实验 | `results/tls60_s` |
 | `configs/quic60_s.yaml` | QUIC top-60，模型集合同 TLS60 | `results/quic60_s` |
+| `configs/ablation_s.yaml` | Hybrid 注意力位置/去注意力消融的 TLS/QUIC、40/60 类三 seed 实验 | `results/ablation_s` |
 | `configs/sota_adapted.yaml` | `30pktTCNET-adapted` 和 `NetMamba-adapted` 的 TLS/QUIC、40/60 类三 seed 对比实验 | `results/sota_adapted` |
 | `configs/transfer_s.yaml` | top-40/top-60 的 LoRA、zero-shot、full fine-tune 迁移合集 | `results/transfer_s` |
 | `configs/base.yaml` | 公共超参数模板，不是批量实验配置 | 无 |
@@ -201,7 +202,9 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 | `quic` | QUIC40 主实验 |
 | `tls60` | TLS60 主实验 |
 | `quic60` | QUIC60 主实验 |
-| `ablation60` | TLS60/QUIC60 的 60 类消融实验 |
+| `ablation40` | TLS40/QUIC40 的消融三 seed 实验 |
+| `ablation60` | TLS60/QUIC60 的消融三 seed 实验 |
+| `ablation_all` | TLS40/QUIC40/TLS60/QUIC60 的消融三 seed 实验 |
 | `seed40` | TLS40/QUIC40 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
 | `seed60` | TLS60/QUIC60 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
 | `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
@@ -304,11 +307,17 @@ adapted SOTA 实验统一放在 `results/sota_adapted`，不再额外套任务�
 - `results/sota_adapted/all_results.csv`：四个任务的 SOTA 总汇总，使用 `exp_name` 区分任务。
 - `results/sota_adapted/<exp_name>/`：每个 SOTA 实验自己的 checkpoint、history、summary 和 metrics。
 
-主模型和 adapted SOTA 的多 seed 命名规则：
+消融实验统一放在 `results/ablation_s`，不再混在四个主任务结果目录里：
+
+- `results/ablation_s/all_results.csv`：四个任务的消融总汇总，使用 `exp_name` 区分任务和 seed。
+- `results/ablation_s/<exp_name>/`：每个消融实验自己的 checkpoint、history、summary 和 metrics。
+
+主模型、消融和 adapted SOTA 的多 seed 命名规则：
 
 - 原始 seed 42 结果统一命名为 `*_seed42`。
 - 新增补充 seed 为 `seed2025` 和 `seed3407`。
 - 主模型涉及 Transformer、Mamba 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid。
+- 消融涉及 `ablation_no_attention`、`ablation_attention_middle` 和 `ablation_attention_front`。
 - adapted SOTA 涉及 `30pktTCNET-adapted` 和 `NetMamba-adapted`。
 
 只跑 60 类多 seed 补充实验：

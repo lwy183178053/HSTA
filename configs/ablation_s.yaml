@@ -1,0 +1,251 @@
+base:
+  output_dir: results/ablation_s
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model_cfg:
+    dim: 128
+    hidden: 128
+    depth: 5
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 256
+
+experiments:
+  - exp_name: ablation_no_attention_tls40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_tls40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_tls40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+
+  - exp_name: ablation_no_attention_quic40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_quic40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_quic40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic40_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic40_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic40_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+
+  - exp_name: ablation_no_attention_tls60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_tls60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_tls60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_tls60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_tls60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+
+  - exp_name: ablation_no_attention_quic60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_quic60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_no_attention_quic60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_middle_quic60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, attention, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic60_s_seed42
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic60_s_seed2025
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]
+  - exp_name: ablation_attention_front_quic60_s_seed3407
+    model: hybrid
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [attention, mamba, mamba, mlp, mlp]

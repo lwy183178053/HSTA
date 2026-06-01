@@ -25,6 +25,7 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 export NUMEXPR_MAX_THREADS="${NUMEXPR_MAX_THREADS:-4}"
 TRANSFER_CONFIG="configs/transfer_s.yaml"
 SOTA_CONFIG="configs/sota_adapted.yaml"
+ABLATION_CONFIG="configs/ablation_s.yaml"
 STACK_TLS40_EXPS=(
   hybrid_mm_mlp_a_mlp_2block_tls40_s_seed42
   hybrid_mm_mlp_a_mlp_4block_tls40_s_seed42
@@ -78,6 +79,24 @@ SOTA_ALL_EXPS=(
   "${SOTA_QUIC40_EXPS[@]}"
   "${SOTA_TLS60_EXPS[@]}"
   "${SOTA_QUIC60_EXPS[@]}"
+)
+ABLATION_TLS40_EXPS=()
+ABLATION_QUIC40_EXPS=()
+ABLATION_TLS60_EXPS=()
+ABLATION_QUIC60_EXPS=()
+for variant in no_attention attention_middle attention_front; do
+  for seed in 42 2025 3407; do
+    ABLATION_TLS40_EXPS+=("ablation_${variant}_tls40_s_seed${seed}")
+    ABLATION_QUIC40_EXPS+=("ablation_${variant}_quic40_s_seed${seed}")
+    ABLATION_TLS60_EXPS+=("ablation_${variant}_tls60_s_seed${seed}")
+    ABLATION_QUIC60_EXPS+=("ablation_${variant}_quic60_s_seed${seed}")
+  done
+done
+ABLATION_ALL_EXPS=(
+  "${ABLATION_TLS40_EXPS[@]}"
+  "${ABLATION_QUIC40_EXPS[@]}"
+  "${ABLATION_TLS60_EXPS[@]}"
+  "${ABLATION_QUIC60_EXPS[@]}"
 )
 
 run_config() {
@@ -133,9 +152,14 @@ case "${MODE}" in
   quic60)
     run_config "QUIC60 experiments" "configs/quic60_s.yaml"
     ;;
+  ablation40)
+    run_config "TLS40/QUIC40 ablation experiments, seeds 42/2025/3407" "${ABLATION_CONFIG}" --only "${ABLATION_TLS40_EXPS[@]}" "${ABLATION_QUIC40_EXPS[@]}"
+    ;;
   ablation60)
-    run_config "1/2 TLS60 ablation experiments" "configs/tls60_s.yaml" --only ablation_no_attention_tls60_s ablation_attention_middle_tls60_s ablation_attention_front_tls60_s
-    run_config "2/2 QUIC60 ablation experiments" "configs/quic60_s.yaml" --only ablation_no_attention_quic60_s ablation_attention_middle_quic60_s ablation_attention_front_quic60_s
+    run_config "TLS60/QUIC60 ablation experiments, seeds 42/2025/3407" "${ABLATION_CONFIG}" --only "${ABLATION_TLS60_EXPS[@]}" "${ABLATION_QUIC60_EXPS[@]}"
+    ;;
+  ablation|ablation_all)
+    run_config "TLS40/QUIC40/TLS60/QUIC60 ablation experiments, seeds 42/2025/3407" "${ABLATION_CONFIG}" --only "${ABLATION_ALL_EXPS[@]}"
     ;;
   seed60)
     run_config "1/2 TLS60 seed robustness experiments" "configs/tls60_s.yaml" --only transformer_5layer_tls60_s_seed2025 mamba_5layer_tls60_s_seed2025 hybrid_mm_mlp_a_mlp_tls60_s_seed2025 transformer_5layer_tls60_s_seed3407 mamba_5layer_tls60_s_seed3407 hybrid_mm_mlp_a_mlp_tls60_s_seed3407
@@ -248,7 +272,7 @@ case "${MODE}" in
     ;;
   *)
     echo "Unknown mode: ${MODE}"
-    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation60, seed40, seed60, stack40, stack60, stack_all, sota40, sota60, sota_all, sota_efficiency, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
+    echo "Available: all, tls, quic, transfer40, all60, tls60, quic60, ablation40, ablation60, ablation_all, ablation, seed40, seed60, stack40, stack60, stack_all, sota40, sota60, sota_all, sota_efficiency, efficiency, efficiency_quick, transfer60, zero40, zero60, fullft40, fullft60, transfer_extra, extend_all, extend_and_transfer, readme_all, quic40_then_all60"
     exit 1
     ;;
 esac
@@ -262,6 +286,7 @@ echo "TLS60 results:  results/tls60_s/all_results.csv"
 echo "QUIC60 results: results/quic60_s/all_results.csv"
 echo "Transfer results: results/transfer_s/all_results.csv"
 echo "SOTA results:     results/sota_adapted/all_results.csv"
+echo "Ablation results: results/ablation_s/all_results.csv"
 echo "Efficiency results: results/efficiency_benchmark/benchmark_results.csv"
 echo "Log: ${LOG}"
 echo "============================================================"

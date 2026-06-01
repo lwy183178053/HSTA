@@ -75,15 +75,3 @@ experiments:
     seed: 3407
     model_cfg:
       layout: [mamba, mamba, mlp, attention, mlp]
-  - exp_name: ablation_no_attention_tls60_s
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, mlp, mlp]
-  - exp_name: ablation_attention_middle_tls60_s
-    model: hybrid
-    model_cfg:
-      layout: [mamba, attention, mamba, mlp, mlp]
-  - exp_name: ablation_attention_front_tls60_s
-    model: hybrid
-    model_cfg:
-      layout: [attention, mamba, mamba, mlp, mlp]
