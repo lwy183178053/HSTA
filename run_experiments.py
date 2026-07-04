@@ -63,6 +63,12 @@ def _run_one(merged: dict):
     return train_one(merged)
 
 
+def _merge_experiment(base: dict, exp: dict) -> dict:
+    merged = deep_merge(copy.deepcopy(base), exp)
+    merged["model_cfg"] = deep_merge(base.get("model_cfg", {}), exp.get("model_cfg", {}))
+    return merged
+
+
 def _split_data(data, test_size: float, val_size: float, seed: int):
     split = _split_by_column(data)
     if split is None:
@@ -239,8 +245,7 @@ def main():
     configured_names = set()
     configured_names_by_output_dir = {}
     for exp in cfg["experiments"]:
-        merged = deep_merge(copy.deepcopy(base), exp)
-        merged["model_cfg"] = deep_merge(base.get("model_cfg", {}), exp.get("model_cfg", {}))
+        merged = _merge_experiment(base, exp)
         configured.append(merged)
         configured_names.add(merged["exp_name"])
         exp_output_dir = str(Path(merged.get("output_dir", base.get("output_dir", "results"))))

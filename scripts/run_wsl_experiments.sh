@@ -162,12 +162,12 @@ case "${MODE}" in
     run_config "TLS40/QUIC40/TLS60/QUIC60 ablation experiments, seeds 42/2025/3407" "${ABLATION_CONFIG}" --only "${ABLATION_ALL_EXPS[@]}"
     ;;
   seed60)
-    run_config "1/2 TLS60 seed robustness experiments" "configs/tls60_s.yaml" --only transformer_5layer_tls60_s_seed2025 mamba_5layer_tls60_s_seed2025 hybrid_mm_mlp_a_mlp_tls60_s_seed2025 transformer_5layer_tls60_s_seed3407 mamba_5layer_tls60_s_seed3407 hybrid_mm_mlp_a_mlp_tls60_s_seed3407
-    run_config "2/2 QUIC60 seed robustness experiments" "configs/quic60_s.yaml" --only transformer_5layer_quic60_s_seed2025 mamba_5layer_quic60_s_seed2025 hybrid_mm_mlp_a_mlp_quic60_s_seed2025 transformer_5layer_quic60_s_seed3407 mamba_5layer_quic60_s_seed3407 hybrid_mm_mlp_a_mlp_quic60_s_seed3407
+    run_config "1/2 TLS60 seed robustness experiments" "configs/tls60_s.yaml" --only transformer_5layer_tls60_s_seed2025 hybrid_mm_mlp_a_mlp_tls60_s_seed2025 transformer_5layer_tls60_s_seed3407 hybrid_mm_mlp_a_mlp_tls60_s_seed3407
+    run_config "2/2 QUIC60 seed robustness experiments" "configs/quic60_s.yaml" --only transformer_5layer_quic60_s_seed2025 hybrid_mm_mlp_a_mlp_quic60_s_seed2025 transformer_5layer_quic60_s_seed3407 hybrid_mm_mlp_a_mlp_quic60_s_seed3407
     ;;
   seed40)
-    run_config "1/2 TLS40 seed robustness experiments" "configs/tls40_s.yaml" --only transformer_5layer_tls40_s_seed2025 mamba_5layer_tls40_s_seed2025 hybrid_mm_mlp_a_mlp_tls40_s_seed2025 transformer_5layer_tls40_s_seed3407 mamba_5layer_tls40_s_seed3407 hybrid_mm_mlp_a_mlp_tls40_s_seed3407
-    run_config "2/2 QUIC40 seed robustness experiments" "configs/quic40_s.yaml" --only transformer_5layer_quic40_s_seed2025 mamba_5layer_quic40_s_seed2025 hybrid_mm_mlp_a_mlp_quic40_s_seed2025 transformer_5layer_quic40_s_seed3407 mamba_5layer_quic40_s_seed3407 hybrid_mm_mlp_a_mlp_quic40_s_seed3407
+    run_config "1/2 TLS40 seed robustness experiments" "configs/tls40_s.yaml" --only transformer_5layer_tls40_s_seed2025 hybrid_mm_mlp_a_mlp_tls40_s_seed2025 transformer_5layer_tls40_s_seed3407 hybrid_mm_mlp_a_mlp_tls40_s_seed3407
+    run_config "2/2 QUIC40 seed robustness experiments" "configs/quic40_s.yaml" --only transformer_5layer_quic40_s_seed2025 hybrid_mm_mlp_a_mlp_quic40_s_seed2025 transformer_5layer_quic40_s_seed3407 hybrid_mm_mlp_a_mlp_quic40_s_seed3407
     ;;
   stack40)
     run_config "1/2 TLS40 hybrid block stacking experiments" "configs/tls40_s.yaml" --only "${STACK_TLS40_EXPS[@]}"

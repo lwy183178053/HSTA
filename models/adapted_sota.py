@@ -4,17 +4,20 @@ import torch.nn as nn
 from .mamba_model import MambaClassifier
 
 
+PACKET_FEATURE_NOTE = "packet size, direction, and packet inter-arrival time features"
 PKT_TCNET_ADAPTED_NOTE = (
     "30pktTCNET-adapted: adapted to our packet-level side-channel input setting "
-    "using packet size, direction, and packet inter-arrival time features."
+    f"using {PACKET_FEATURE_NOTE}."
 )
 NETMAMBA_ADAPTED_NOTE = (
     "NetMamba-adapted: adapted to our packet-level side-channel input setting "
-    "using packet size, direction, and packet inter-arrival time features."
+    f"using {PACKET_FEATURE_NOTE}."
 )
 
 
 class TemporalConvBlock(nn.Module):
+    """Residual temporal Conv1d block that preserves the [B, C, T] shape."""
+
     def __init__(
         self,
         channels: int,
@@ -97,6 +100,7 @@ class PktTCNetAdapted(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Conv1d expects channels before the 30-packet time axis.
         x = x.transpose(1, 2)
         x = self.input_proj(x)
         for block in self.blocks:

@@ -26,7 +26,10 @@ DEFAULT_CONFIGS = [
     "configs/sota_adapted.yaml",
 ]
 
-CORE_MODELS = {"transformer", "mamba", "hybrid", "30pktTCNET-adapted", "NetMamba-adapted"}
+# Standalone Mamba baseline is intentionally excluded; NetMamba-adapted covers
+# the Mamba-only comparison in the final experiment set.
+CORE_MODELS = {"transformer", "hybrid", "30pktTCNET-adapted", "NetMamba-adapted"}
+TASK_NAMES = ("tls40_s", "quic40_s", "tls60_s", "quic60_s")
 
 REPEATED_METRICS = [
     "latency_ms_mean",
@@ -331,7 +334,7 @@ def _task_from_config(config_path: str) -> str:
 
 
 def _task_from_exp_name(exp_name: str) -> str | None:
-    for task in ("tls40_s", "quic40_s", "tls60_s", "quic60_s"):
+    for task in TASK_NAMES:
         if task in exp_name:
             return task
     return None

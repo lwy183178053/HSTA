@@ -10,6 +10,7 @@ venv/
 results/
 logs/
 paper/
+tmp/
 
 # Keep Python code under data/, but ignore local datasets and generated data files.
 data/**

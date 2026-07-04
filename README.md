@@ -1,6 +1,6 @@
 # MM-MLP-A-MLP
 
-这是一个基于 PyTorch 的加密流量分类实验项目，用于比较 5 层基线模型、`Mamba -> Mamba -> MLP -> Attention -> MLP` 混合模型、注意力位置消融、LoRA 迁移、zero-shot 迁移和 full fine-tune 迁移。
+这是一个基于 PyTorch 的加密流量分类实验项目，用于比较 5 层常规基线模型、`Mamba -> Mamba -> MLP -> Attention -> MLP` 混合模型、注意力位置消融、LoRA 迁移、zero-shot 迁移和 full fine-tune 迁移。
 
 Mamba 模块依赖官方 `mamba-ssm`，建议在 WSL/Linux CUDA 环境运行。普通数据检查、CSV 预处理和非 Mamba 脚本也可以在 Windows 的 Anaconda 环境中运行。
 
@@ -47,7 +47,7 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m pip install -r requirements.txt
 ```
 
-`mamba-ssm` 在 Windows 上通常不方便安装。需要跑 `mamba`、`hybrid`、`hybrid_lora` 时，优先使用 WSL/Linux CUDA 环境。
+`mamba-ssm` 在 Windows 上通常不方便安装。需要跑 `hybrid`、`hybrid_lora`、`NetMamba-adapted` 时，优先使用 WSL/Linux CUDA 环境。
 
 ## 准备 DataZoo S CSV
 
@@ -132,9 +132,9 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 
 | 配置 | 作用 | 输出目录 |
 | --- | --- | --- |
-| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Mamba/Hybrid 主实验 | `results/tls40_s` |
+| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Hybrid 主实验 | `results/tls40_s` |
 | `configs/quic40_s.yaml` | QUIC top-40，模型集合同 TLS40 | `results/quic40_s` |
-| `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Mamba/Hybrid，以及 Transformer/Mamba/Hybrid 的多 seed 主实验 | `results/tls60_s` |
+| `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Hybrid，以及 Transformer/Hybrid 的多 seed 主实验 | `results/tls60_s` |
 | `configs/quic60_s.yaml` | QUIC top-60，模型集合同 TLS60 | `results/quic60_s` |
 | `configs/ablation_s.yaml` | Hybrid 注意力位置/去注意力消融的 TLS/QUIC、40/60 类三 seed 实验 | `results/ablation_s` |
 | `configs/sota_adapted.yaml` | `30pktTCNET-adapted` 和 `NetMamba-adapted` 的 TLS/QUIC、40/60 类三 seed 对比实验 | `results/sota_adapted` |
@@ -205,8 +205,8 @@ wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-M
 | `ablation40` | TLS40/QUIC40 的消融三 seed 实验 |
 | `ablation60` | TLS60/QUIC60 的消融三 seed 实验 |
 | `ablation_all` | TLS40/QUIC40/TLS60/QUIC60 的消融三 seed 实验 |
-| `seed40` | TLS40/QUIC40 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
-| `seed60` | TLS60/QUIC60 中 Transformer、Mamba、Hybrid 的 seed2025/seed3407 补充实验 |
+| `seed40` | TLS40/QUIC40 中 Transformer、Hybrid 的 seed2025/seed3407 补充实验 |
+| `seed60` | TLS60/QUIC60 中 Transformer、Hybrid 的 seed2025/seed3407 补充实验 |
 | `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
 | `stack60` | TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
 | `stack_all` | TLS40/QUIC40/TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
@@ -316,7 +316,7 @@ adapted SOTA 实验统一放在 `results/sota_adapted`，不再额外套任务�
 
 - 原始 seed 42 结果统一命名为 `*_seed42`。
 - 新增补充 seed 为 `seed2025` 和 `seed3407`。
-- 主模型涉及 Transformer、Mamba 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid。
+- 主模型涉及 Transformer 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid；当前实验集不再保留单独的 Mamba baseline 结果。
 - 消融涉及 `ablation_no_attention`、`ablation_attention_middle` 和 `ablation_attention_front`。
 - adapted SOTA 涉及 `30pktTCNET-adapted` 和 `NetMamba-adapted`。
 

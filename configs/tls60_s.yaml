@@ -37,8 +37,6 @@ experiments:
       pooling: last
   - exp_name: transformer_5layer_tls60_s_seed42
     model: transformer
-  - exp_name: mamba_5layer_tls60_s_seed42
-    model: mamba
   - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed42
     model: hybrid
     model_cfg:
@@ -56,9 +54,6 @@ experiments:
   - exp_name: transformer_5layer_tls60_s_seed2025
     model: transformer
     seed: 2025
-  - exp_name: mamba_5layer_tls60_s_seed2025
-    model: mamba
-    seed: 2025
   - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed2025
     model: hybrid
     seed: 2025
@@ -66,9 +61,6 @@ experiments:
       layout: [mamba, mamba, mlp, attention, mlp]
   - exp_name: transformer_5layer_tls60_s_seed3407
     model: transformer
-    seed: 3407
-  - exp_name: mamba_5layer_tls60_s_seed3407
-    model: mamba
     seed: 3407
   - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed3407
     model: hybrid

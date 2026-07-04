@@ -51,6 +51,12 @@ def load_sequence_csv(
     label_col: str = "label",
     split_col: str = "split",
 ) -> SequenceData:
+    """Load packet rows into fixed-length flow tensors.
+
+    By default the model input is [size, direction, delta_time]. Metadata such
+    as pkt_index stays in the CSV for traceability but is not used as a feature.
+    """
+
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {csv_path}")

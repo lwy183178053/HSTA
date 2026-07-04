@@ -7,3 +7,5 @@ tqdm
 cesnet-datazoo
 h5py
 mamba-ssm
+python-docx
+matplotlib
