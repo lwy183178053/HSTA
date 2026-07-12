@@ -11,6 +11,7 @@ results/
 logs/
 paper/
 tmp/
+.worktrees/
 
 # Keep Python code under data/, but ignore local datasets and generated data files.
 data/**
