@@ -14,19 +14,26 @@ Create a standalone graphical abstract that summarizes the complete HSTA paper i
 
 ## Composition
 
+Use a `2600 x 1700` landscape canvas organized as three full-width horizontal bands. The bands form a single top-to-bottom reading path and prevent the data-preparation narrative from being compressed into a side column.
+
 ### Header
 
 - Large `HSTA` identifier.
 - Subtitle: `Hybrid state-space transition-attention modeling for encrypted QUIC/TLS traffic classification`.
 - Compact badges for `30 packets`, `3 side-channel features`, and `No payload / DPI`.
 
-### Upper Narrative
+### Band 1: Data Preparation
 
-- Left input panel: CESNET-TLS22 and CESNET-QUIC22, bidirectional packet glyphs, `flow_id` grouping, packet-order preservation, first-30-packet window, a representative `30 x 3` table, zero-padding, train-only standardization, privacy boundary, and `[B, 30, 3]` tensor.
-- Center model panel: projection and positional embedding, two Mamba blocks, Transition MLP, Attention, Refinement MLP, LayerNorm and mean pooling, and class logits.
-- Mechanism ribbon: sequential dependency modeling, discriminative packet reweighting, and compact flow representation.
+- Reserve the complete first band for preprocessing rather than placing it in a narrow side panel.
+- Present five connected stages: encrypted CESNET-TLS22/CESNET-QUIC22 records, `flow_id` reconstruction with packet-order preservation, detailed first-30-packet `30 x 3` encoding, official split with train-only standardization, and the `[B, 30, 3]` model-ready tensor.
+- Keep the privacy boundary explicit with `No payload`, `No DPI`, and `No domains` labels.
 
-### Lower Evidence Panels
+### Band 2: HSTA Model
+
+- Present projection and positional embedding, two Mamba blocks, Transition MLP, Attention, Refinement MLP, LayerNorm and mean pooling, and class logits in one uninterrupted horizontal pipeline.
+- Close the band with a mechanism ribbon for sequential dependency modeling, discriminative packet reweighting, and compact flow representation.
+
+### Band 3: Experimental Evidence
 
 - `A Four-task performance`: mini grouped bars and the four HSTA Macro-F1 values.
 - `B Attention placement`: four architecture strips and the complete-HSTA result.

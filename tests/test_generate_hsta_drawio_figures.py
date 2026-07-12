@@ -157,6 +157,19 @@ class GraphicalAbstractTests(unittest.TestCase):
         self.assertNotRegex(values, r"[\u4e00-\u9fff]")
         self.assertNotIn("-adapted", values)
 
+    def test_graphical_abstract_uses_three_full_width_bands(self):
+        model = self.root.find(".//mxGraphModel")
+        self.assertIsNotNone(model)
+        self.assertEqual(model.attrib["pageWidth"], "2600")
+        self.assertEqual(model.attrib["pageHeight"], "1700")
+
+        for cell_id in ("ga-data-band", "ga-model-band", "ga-evidence-band"):
+            cell = self.root.find(f".//mxCell[@id='{cell_id}']")
+            self.assertIsNotNone(cell, cell_id)
+            geometry = cell.find("mxGeometry")
+            self.assertIsNotNone(geometry, cell_id)
+            self.assertGreaterEqual(float(geometry.attrib["width"]), 2520)
+
     def test_write_graphical_abstract(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "graphical.drawio"

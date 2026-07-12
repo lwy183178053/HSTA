@@ -803,16 +803,16 @@ def _ga_mini_matrix(page: Page, data: ConfusionData, prefix: str, x: float, y: f
 
 
 def build_graphical_abstract_page(data: FigureData) -> Page:
-    page = Page("Graphical Abstract", 2400, 1350)
-    page.rect(25, 25, 2350, 112, CHARCOAL, CHARCOAL, 0, 1)
-    page.text("HSTA", 62, 42, 175, 66, 38, WHITE, True, "left")
+    page = Page("Graphical Abstract", 2600, 1700)
+    page.rect(30, 25, 2540, 110, CHARCOAL, CHARCOAL, 0, 1)
+    page.text("HSTA", 66, 43, 175, 62, 38, WHITE, True, "left")
     page.text(
         "Hybrid state-space transition-attention modeling for encrypted QUIC/TLS traffic classification",
-        245,
+        240,
         43,
-        1340,
+        1470,
         62,
-        23,
+        22,
         WHITE,
         True,
         "left",
@@ -823,36 +823,80 @@ def build_graphical_abstract_page(data: FigureData) -> Page:
         ("No payload / DPI", ORANGE, SOFT_ORANGE),
     ]
     for index, (label, stroke, fill) in enumerate(badges):
-        page.vertex(label, 1610 + index * 242, 53, 220, 48, _box_style(fill, stroke, 14, 1, True))
+        page.vertex(label, 1765 + index * 260, 54, 230, 46, _box_style(fill, stroke, 14, 1, True))
 
-    page.rect(35, 165, 430, 520, SOFT_BLUE, BLUE, 2, 1)
-    page.circle("1", 55, 185, 38, BLUE, BLUE, 16)
-    page.text("Privacy-preserving input", 105, 181, 320, 44, 22, BLUE, True, "left")
-    page.vertex("CESNET-TLS22", 68, 238, 158, 42, _box_style(WHITE, BLUE, 14, 1, True))
-    page.vertex("CESNET-QUIC22", 240, 238, 178, 42, _box_style(WHITE, BLUE, 14, 1, True))
-    _packet_strip(page, 76, 292, 8, 0.54)
-    process = [("flow_id", BLUE, SOFT_BLUE), ("ordered packets", VIOLET, SOFT_VIOLET), ("first 30", ORANGE, SOFT_ORANGE)]
-    for index, (label, stroke, fill) in enumerate(process):
-        px = 62 + index * 122
-        page.vertex(label, px, 336, 102, 34, _box_style(fill, stroke, 11, 1, True))
-        if index < 2:
-            _arrow(page, px + 105, 353, px + 118, 353, stroke)
+    # Band 1: a full-width, leakage-aware data preparation narrative.
+    page.rect(40, 155, 2520, 450, WHITE, BLUE, 2, 1, "ga-data-band")
+    page.rect(52, 167, 2496, 54, SOFT_BLUE, "none", 0, 1)
+    page.circle("1", 68, 176, 34, BLUE, BLUE, 15)
+    page.text("DATA PREPARATION", 116, 170, 250, 40, 18, BLUE, True, "left")
+    page.text("Privacy-preserving input and leakage-aware packet-side preprocessing", 365, 170, 1120, 40, 19, CHARCOAL, True, "left")
+    page.vertex("NO PAYLOAD", 2060, 176, 145, 34, _box_style(WHITE, ORANGE, 11, 1, True))
+    page.vertex("NO DPI", 2218, 176, 120, 34, _box_style(WHITE, ORANGE, 11, 1, True))
+    page.vertex("NO DOMAINS", 2350, 176, 170, 34, _box_style(WHITE, ORANGE, 11, 1, True))
 
-    table_x, table_y, col_w, row_h = 64, 386, 84, 27
-    columns = ["pkt", "size", "dir.", "delta t"]
+    data_steps = [
+        ("01", "ENCRYPTED DATA", 70, 238, 330, SOFT_BLUE, BLUE),
+        ("02", "FLOW RECONSTRUCTION", 430, 238, 340, SOFT_VIOLET, VIOLET),
+        ("03", "FIXED-LENGTH ENCODING", 800, 238, 610, SOFT_ORANGE, ORANGE),
+        ("04", "LEAKAGE-AWARE SPLIT", 1440, 238, 530, SOFT_GREEN, GREEN),
+        ("05", "MODEL-READY TENSOR", 2000, 238, 520, LIGHT_GRAY, CHARCOAL),
+    ]
+    for number, title, x, y, width, fill, stroke in data_steps:
+        page.rect(x, y, width, 330, fill, stroke, 1.5, 1)
+        page.circle(number, x + 14, y + 13, 30, stroke, stroke, 11)
+        page.text(title, x + 55, y + 10, width - 70, 36, 14, stroke, True, "left")
+
+    page.vertex("CESNET-TLS22", 92, 300, 135, 38, _box_style(WHITE, BLUE, 12, 1, True))
+    page.vertex("CESNET-QUIC22", 240, 300, 138, 38, _box_style(WHITE, BLUE, 12, 1, True))
+    _packet_strip(page, 108, 358, 7, 0.67)
+    page.text("Encrypted bidirectional packet stream", 86, 425, 295, 30, 12, BLUE, True)
+    page.text("Application labels + packet-level PPI records", 85, 469, 300, 44, 12, CHARCOAL)
+    page.vertex("payload remains encrypted", 105, 520, 260, 30, _box_style(WHITE, BLUE, 11, 1, True))
+
+    flow_steps = [
+        ("flow_id", 458, 305, BLUE, SOFT_BLUE),
+        ("ordered packets", 458, 375, VIOLET, WHITE),
+        ("first 30", 458, 445, ORANGE, WHITE),
+    ]
+    for index, (label, x, y, stroke, fill) in enumerate(flow_steps):
+        page.vertex(label, x, y, 280, 42, _box_style(fill, stroke, 13, 1, True))
+        if index < len(flow_steps) - 1:
+            _arrow(page, x + 140, y + 45, x + 140, y + 65, stroke)
+    page.text("group rows", 655, 342, 82, 20, 10, BLUE, True)
+    page.text("preserve order", 640, 412, 98, 20, 10, VIOLET, True)
+    page.text("truncate / pad", 640, 482, 98, 20, 10, ORANGE, True)
+    page.text("Malformed records are removed before flow assembly", 465, 515, 275, 35, 11, CHARCOAL)
+
+    table_x, table_y, col_w, row_h = 842, 295, 132, 33
+    columns = ["Packet", "Size", "Direction", "Delta t"]
     for col, label in enumerate(columns):
-        page.vertex(label, table_x + col * col_w, table_y, col_w, row_h, _box_style(SOFT_BLUE, BLUE, 10, 0, True))
+        page.vertex(label, table_x + col * col_w, table_y, col_w, row_h, _box_style(SOFT_ORANGE, ORANGE, 11, 0, True))
     rows = [
         ("1", "s1", "+1", "dt1"),
         ("2", "s2", "-1", "dt2"),
         ("...", "...", "...", "..."),
-        ("30", "s30", "+/-1", "dt30"),
+        ("29", "s29", "-1", "dt29"),
+        ("30", "s30", "+1", "dt30"),
         ("pad", "0", "0", "0"),
     ]
     for row_index, values in enumerate(rows):
         for col, value in enumerate(values):
             fill = LIGHT_GRAY if row_index == len(rows) - 1 else WHITE
-            page.vertex(value, table_x + col * col_w, table_y + (row_index + 1) * row_h, col_w, row_h, _box_style(fill, "9CB6C9", 10, 0, False))
+            page.vertex(value, table_x + col * col_w, table_y + (row_index + 1) * row_h, col_w, row_h, _box_style(fill, "C79D7C", 11, 0, False))
+    page.text("Truncate or zero-pad to 30 packets", 855, 532, 500, 25, 12, ORANGE, True)
+
+    page.text("Official protocol-specific split", 1480, 292, 450, 30, 14, GREEN, True)
+    split_x, split_y = 1480, 340
+    split_widths = [230, 112, 112]
+    split_labels = [("TRAIN", SOFT_BLUE, BLUE), ("VAL", WHITE, GREEN), ("TEST", WHITE, GREEN)]
+    cursor = split_x
+    for width, (label, fill, stroke) in zip(split_widths, split_labels):
+        page.vertex(label, cursor, split_y, width, 58, _box_style(fill, stroke, 13, 1, True))
+        cursor += width + 10
+    page.text("Preserve the official DataZoo partition", 1490, 410, 430, 30, 12, CHARCOAL, True)
+    page.rect(1480, 452, 450, 88, WHITE, GREEN, 1.5, 1)
+    page.text("<b>train-only standardization</b><br>fit on Train -&gt; transform Train / Val / Test", 1505, 463, 400, 62, 13, GREEN, False)
 
     features = [
         ("Packet size", BLUE, SOFT_BLUE),
@@ -860,87 +904,100 @@ def build_graphical_abstract_page(data: FigureData) -> Page:
         ("Inter-arrival time", GREEN, SOFT_GREEN),
     ]
     for index, (label, stroke, fill) in enumerate(features):
-        page.vertex(label, 62 + index * 116, 558, 106, 34, _box_style(fill, stroke, 10, 1, True))
-    _layer_stack(page, 145, 592, 175, 44, WHITE, BLUE, "Tensor [B, 30, 3]")
-    page.text("Truncate / zero-pad | train-only standardization", 58, 653, 350, 17, 11, GREEN, True)
-    page.text("No payload | No DPI | No domains", 86, 670, 295, 14, 10, ORANGE, True)
+        page.vertex(label, 2030 + index * 155, 300, 140, 42, _box_style(fill, stroke, 11, 1, True))
+    _layer_stack(page, 2155, 380, 230, 82, WHITE, BLUE, "Tensor [B, 30, 3]")
+    page.text("X in R^(B x 30 x 3)", 2085, 478, 365, 32, 17, ORANGE, True)
+    page.text("Compact packet-side representation", 2075, 512, 385, 24, 11, CHARCOAL, True)
+    page.text("No payload | No DPI | No domains", 2040, 539, 450, 18, 10, ORANGE, True)
 
-    page.rect(495, 165, 1870, 520, SOFT_VIOLET, VIOLET, 2, 1)
-    page.circle("2", 515, 185, 38, VIOLET, VIOLET, 16)
-    page.text("HSTA representation and classification pipeline", 565, 181, 720, 44, 22, VIOLET, True, "left")
+    for x1, x2, color in ((400, 430, BLUE), (770, 800, VIOLET), (1410, 1440, ORANGE), (1970, 2000, GREEN)):
+        _arrow(page, x1, 408, x2, 408, color)
+
+    # Band 2: the complete HSTA model occupies its own uninterrupted row.
+    page.rect(40, 625, 2520, 390, WHITE, VIOLET, 2, 1, "ga-model-band")
+    page.rect(52, 637, 2496, 54, SOFT_VIOLET, "none", 0, 1)
+    page.circle("2", 68, 646, 34, VIOLET, VIOLET, 15)
+    page.text("HSTA MODEL", 116, 640, 190, 40, 18, VIOLET, True, "left")
+    page.text("HSTA representation and classification pipeline", 310, 640, 780, 40, 19, CHARCOAL, True, "left")
+    page.text("state-space encoding", 1715, 640, 260, 40, 13, BLUE, True)
+    page.text("selective interaction", 1975, 640, 260, 40, 13, VIOLET, True)
+    page.text("compact prediction", 2235, 640, 260, 40, 13, ORANGE, True)
+
     stages = [
-        ("Projection +<br>position", SOFT_BLUE, BLUE, 185),
-        ("Mamba<br>block 1", SOFT_BLUE, BLUE, 190),
-        ("Mamba<br>block 2", SOFT_BLUE, BLUE, 190),
-        ("Transition<br>MLP", SOFT_GREEN, GREEN, 200),
-        ("Attention", SOFT_VIOLET, VIOLET, 205),
-        ("Refinement<br>MLP", SOFT_ORANGE, ORANGE, 205),
-        ("Pool + head", LIGHT_GRAY, CHARCOAL, 215),
+        ("Projection +<br>position", SOFT_BLUE, BLUE, 300),
+        ("Mamba<br>block 1", SOFT_BLUE, BLUE, 285),
+        ("Mamba<br>block 2", SOFT_BLUE, BLUE, 285),
+        ("Transition<br>MLP", SOFT_GREEN, GREEN, 300),
+        ("Attention", SOFT_VIOLET, VIOLET, 285),
+        ("Refinement<br>MLP", SOFT_ORANGE, ORANGE, 300),
+        ("Pool + head", LIGHT_GRAY, CHARCOAL, 300),
     ]
-    sx = 530
+    sx = 100
     stage_positions = []
     for index, (label, fill, stroke, width) in enumerate(stages):
-        _ga_stage_box(page, index + 1, label, sx, 252, width, 240, fill, stroke)
+        _ga_stage_box(page, index + 1, label, sx, 715, width, 205, fill, stroke)
         stage_positions.append((sx, width, stroke))
-        sx += width + 45
-    for index, (sx, width, stroke) in enumerate(stage_positions[:-1]):
-        _arrow(page, sx + width, 370, stage_positions[index + 1][0], 370, stroke)
-    _ga_sequence_glyph(page, 560, 350, BLUE)
-    _ga_sequence_glyph(page, 780, 350, BLUE)
-    _ga_sequence_glyph(page, 1015, 350, BLUE)
-    _ga_network(page, 1245, 338, GREEN)
-    _ga_heatmap(page, 1510, 330, VIOLET, SOFT_VIOLET)
-    _ga_network(page, 1760, 338, ORANGE)
+        sx += width + 38
+    for index, (stage_x, width, stroke) in enumerate(stage_positions[:-1]):
+        _arrow(page, stage_x + width, 817, stage_positions[index + 1][0], 817, stroke)
+    _ga_sequence_glyph(page, 180, 795, BLUE)
+    _ga_sequence_glyph(page, 520, 795, BLUE)
+    _ga_sequence_glyph(page, 845, 795, BLUE)
+    _ga_network(page, 1195, 780, GREEN)
+    _ga_heatmap(page, 1530, 775, VIOLET, SOFT_VIOLET)
+    _ga_network(page, 1855, 780, ORANGE)
     for row in range(4):
-        page.rect(2035, 335 + row * 28, 65 - row * 8, 18, SOFT_BLUE, BLUE, 1, 1)
-    page.line(2115, 330, 2115, 455, CHARCOAL, 2)
-    for index, height in enumerate((35, 62, 88, 52)):
-        page.rect(2150 + index * 35, 455 - height, 22, height, ORANGE, ORANGE, 1, 1)
+        page.rect(2180, 776 + row * 25, 66 - row * 8, 16, SOFT_BLUE, BLUE, 1, 1)
+    page.line(2265, 770, 2265, 875, CHARCOAL, 2)
+    for index, height in enumerate((32, 58, 82, 48)):
+        page.rect(2300 + index * 34, 875 - height, 21, height, ORANGE, ORANGE, 1, 1)
     descriptions = [
-        "3 -&gt; 128",
-        "state dynamics",
+        "3 -&gt; 128 + learned position",
+        "local state dynamics",
         "long-range context",
         "nonlinear transition",
         "packet reweighting",
         "feature refinement",
-        "class logits",
+        "LayerNorm + mean pooling",
     ]
-    for index, (sx, width, stroke) in enumerate(stage_positions):
-        page.text(descriptions[index], sx + 12, 507, width - 24, 30, 12, stroke, True)
-    page.rect(535, 558, 1785, 88, WHITE, "B7A7C6", 1.5, 1)
-    mechanism = [
+    for index, (stage_x, width, stroke) in enumerate(stage_positions):
+        page.text(descriptions[index], stage_x + 10, 927, width - 20, 27, 11, stroke, True)
+    mechanisms = [
         ("Sequential dependency modeling", BLUE),
         ("Discriminative packet reweighting", VIOLET),
         ("Compact flow representation", ORANGE),
     ]
-    for index, (label, color) in enumerate(mechanism):
-        mx = 575 + index * 565
-        page.circle(str(index + 1), mx, 579, 34, color, color, 14)
-        page.text(label, mx + 48, 571, 460, 50, 16, color, True, "left")
+    for index, (label, color) in enumerate(mechanisms):
+        mx = 260 + index * 785
+        page.circle(str(index + 1), mx, 965, 28, color, color, 12)
+        page.text(label, mx + 40, 958, 570, 42, 14, color, True, "left")
         if index < 2:
-            _arrow(page, mx + 500, 596, mx + 545, 596, color)
-    _arrow(page, 465, 420, 495, 420, BLUE)
+            _arrow(page, mx + 630, 979, mx + 735, 979, color)
 
-    panel_y, panel_h = 720, 600
-    _ga_panel(page, "A", "Four-task performance", 35, panel_y, 550, panel_h, ORANGE, SOFT_ORANGE)
-    chart_x, chart_y, chart_w, chart_h = 95, 850, 430, 300
+    # Band 3: four complementary evidence panels share one aligned baseline.
+    page.rect(40, 1035, 2520, 625, WHITE, CHARCOAL, 1.5, 1, "ga-evidence-band")
+    panel_y, panel_h = 1055, 585
+    _ga_panel(page, "A", "Four-task performance", 58, panel_y, 600, panel_h, ORANGE, SOFT_ORANGE)
+    chart_x, chart_y, chart_w, chart_h = 115, 1170, 485, 290
     page.line(chart_x, chart_y, chart_x, chart_y + chart_h, CHARCOAL, 1.5)
     page.line(chart_x, chart_y + chart_h, chart_x + chart_w, chart_y + chart_h, CHARCOAL, 1.5)
     group_w = chart_w / 4
     methods = [("GRU", MID_GRAY), ("NetMamba", BLUE), ("HSTA", ORANGE)]
     for task_index, task in enumerate(TASKS):
-        gx = chart_x + task_index * group_w + 17
+        gx = chart_x + task_index * group_w + 18
         for method_index, (method, color) in enumerate(methods):
             value = data.main[method][task][0]
             bar_h = (value - 84) / 14 * chart_h
-            bx = gx + method_index * 25
-            page.rect(bx, chart_y + chart_h - bar_h, 18, bar_h, color, color, 0.5, 1)
-        page.text(task, gx - 13, chart_y + chart_h + 10, 103, 26, 11, CHARCOAL, True)
-        page.text(f"{data.main['HSTA'][task][0]:.2f}", gx + 42, chart_y + chart_h - (data.main['HSTA'][task][0] - 84) / 14 * chart_h - 25, 58, 22, 10, ORANGE, True)
-    page.text("Best Macro-F1 on all four tasks", 95, 1205, 430, 32, 16, ORANGE, True)
-    page.text("QUIC gains are largest over strong sequence baselines", 75, 1245, 470, 34, 12, CHARCOAL)
+            bx = gx + method_index * 27
+            page.rect(bx, chart_y + chart_h - bar_h, 20, bar_h, color, color, 0.5, 1)
+        page.text(task, gx - 14, chart_y + chart_h + 10, 112, 26, 11, CHARCOAL, True)
+        hsta_value = data.main["HSTA"][task][0]
+        page.text(f"{hsta_value:.2f}", gx + 46, chart_y + chart_h - (hsta_value - 84) / 14 * chart_h - 25, 62, 22, 10, ORANGE, True)
+    page.text("Best Macro-F1 on all four tasks", 120, 1515, 475, 30, 16, ORANGE, True)
+    page.text("91.09 / 90.28 QUIC | 96.78 / 96.29 TLS", 105, 1555, 505, 30, 12, CHARCOAL, True)
+    page.text("QUIC gains are largest over strong sequence baselines", 95, 1592, 525, 26, 11, CHARCOAL)
 
-    _ga_panel(page, "B", "Attention placement", 605, panel_y, 550, panel_h, VIOLET, SOFT_VIOLET)
+    _ga_panel(page, "B", "Attention placement", 678, panel_y, 600, panel_h, VIOLET, SOFT_VIOLET)
     variants = [
         ("No attention", "No attention", ["M", "M", "T", "R", "R"], MID_GRAY),
         ("Front", "Front attention", ["A", "M", "M", "T", "R"], VIOLET),
@@ -952,20 +1009,20 @@ def build_graphical_abstract_page(data: FigureData) -> Page:
         for display_name, data_key, _, _ in variants
     }
     for index, (name, _, sequence, color) in enumerate(variants):
-        vy = 815 + index * 93
-        page.text(name, 635, vy, 110, 28, 13, color, True, "left")
+        vy = 1160 + index * 86
+        page.text(name, 710, vy, 115, 28, 12, color, True, "left")
         for stage_index, stage in enumerate(sequence):
             fill = color if stage == "A" else WHITE
             text_color = WHITE if fill != WHITE else CHARCOAL
-            page.vertex(stage, 755 + stage_index * 48, vy - 2, 34, 34, _box_style(fill, color, 11, 1, True) + f"fontColor=#{text_color};")
+            page.vertex(stage, 830 + stage_index * 53, vy - 2, 38, 34, _box_style(fill, color, 11, 1, True) + f"fontColor=#{text_color};")
             if stage_index < 4:
-                page.line(789 + stage_index * 48, vy + 15, 801 + stage_index * 48, vy + 15, color, 1, False, True)
-        page.text(f"{averages[name]:.2f}%", 1005, vy, 105, 28, 13, color, name == "HSTA", "right")
-    page.rect(650, 1195, 460, 80, SOFT_ORANGE, ORANGE, 1.5, 1)
-    page.text("Attention is most effective after state-space encoding and transition.", 675, 1208, 410, 52, 15, ORANGE, True)
+                page.line(868 + stage_index * 53, vy + 15, 883 + stage_index * 53, vy + 15, color, 1, False, True)
+        page.text(f"{averages[name]:.2f}%", 1120, vy, 110, 28, 12, color, name == "HSTA", "right")
+    page.rect(730, 1515, 495, 80, SOFT_ORANGE, ORANGE, 1.5, 1)
+    page.text("Attention is most effective after state-space encoding and transition.", 755, 1528, 445, 50, 14, ORANGE, True)
 
-    _ga_panel(page, "C", "Efficiency and transfer", 1175, panel_y, 585, panel_h, GREEN, SOFT_GREEN)
-    scatter_x, scatter_y, scatter_w, scatter_h = 1235, 825, 460, 205
+    _ga_panel(page, "C", "Efficiency and transfer", 1298, panel_y, 600, panel_h, GREEN, SOFT_GREEN)
+    scatter_x, scatter_y, scatter_w, scatter_h = 1360, 1165, 475, 195
     page.line(scatter_x, scatter_y, scatter_x, scatter_y + scatter_h, CHARCOAL, 1.2)
     page.line(scatter_x, scatter_y + scatter_h, scatter_x + scatter_w, scatter_y + scatter_h, CHARCOAL, 1.2)
     model_colors = {"GRU": MID_GRAY, "Transformer": VIOLET, "30pktTCNET": TEAL, "NetMamba": BLUE, "HSTA": ORANGE}
@@ -977,29 +1034,29 @@ def build_graphical_abstract_page(data: FigureData) -> Page:
         page.circle("", px - 8, py - 8, 16 if model != "HSTA" else 23, color, WHITE, 8)
         if model in {"HSTA", "NetMamba", "Transformer"}:
             page.text(model, px + 10, py - 15, 100, 24, 10, color, model == "HSTA", "left")
-    page.text("Parameters (M)", 1375, 1042, 180, 24, 11, CHARCOAL, True)
-    page.vertex("HSTA: 0.602 M parameters", 1255, 1080, 420, 48, _box_style(SOFT_ORANGE, ORANGE, 15, 1, True))
+    page.text("Parameters (M)", 1495, 1370, 200, 24, 11, CHARCOAL, True)
+    page.vertex("HSTA: 0.602 M parameters", 1385, 1407, 425, 44, _box_style(SOFT_ORANGE, ORANGE, 14, 1, True))
     transfer_values = [data.transfer["Full fine-tuning"][task] for task in TRANSFER_TASKS]
     transfer_labels = [("QUIC", "TLS-40"), ("TLS", "QUIC-40"), ("QUIC", "TLS-60"), ("TLS", "QUIC-60")]
     for index, ((source, target), value) in enumerate(zip(transfer_labels, transfer_values)):
-        ty = 1155 + (index % 2) * 62
-        tx = 1215 + (index // 2) * 270
-        page.vertex(source, tx, ty, 62, 32, _box_style(SOFT_BLUE, BLUE, 10, 1, True))
-        _arrow(page, tx + 68, ty + 16, tx + 100, ty + 16, BLUE)
-        page.vertex(target, tx + 106, ty, 78, 32, _box_style(SOFT_ORANGE, ORANGE, 10, 1, True))
-        page.text(f"{value:.2f}", tx + 190, ty + 2, 60, 28, 12, ORANGE, True)
-    page.text("Full fine-tuning remains effective across protocols", 1225, 1283, 475, 25, 12, GREEN, True)
+        ty = 1482 + (index % 2) * 55
+        tx = 1338 + (index // 2) * 280
+        page.vertex(source, tx, ty, 66, 30, _box_style(SOFT_BLUE, BLUE, 10, 1, True))
+        _arrow(page, tx + 72, ty + 15, tx + 100, ty + 15, BLUE)
+        page.vertex(target, tx + 106, ty, 82, 30, _box_style(SOFT_ORANGE, ORANGE, 10, 1, True))
+        page.text(f"{value:.2f}", tx + 194, ty + 1, 60, 28, 11, ORANGE, True)
+    page.text("Full fine-tuning remains effective across protocols", 1350, 1595, 490, 24, 11, GREEN, True)
 
-    _ga_panel(page, "D", "Class-level error structure", 1780, panel_y, 585, panel_h, BLUE, SOFT_BLUE)
-    _ga_mini_matrix(page, data.confusion["QUIC-40"], "q40", 1828, 830, 210, "QUIC-40")
-    _ga_mini_matrix(page, data.confusion["QUIC-60"], "q60", 2105, 830, 210, "QUIC-60")
-    page.rect(1825, 1088, 490, 78, SOFT_ORANGE, ORANGE, 1.5, 1)
-    page.text("AdAvoid -&gt; Gmail", 1845, 1098, 215, 26, 14, ORANGE, True, "left")
-    page.text("23.01% / 24.07%", 2075, 1098, 215, 26, 14, ORANGE, True, "right")
-    page.text("Play.cz Radio -&gt; Overleaf Compile", 1845, 1130, 300, 26, 12, ORANGE, True, "left")
-    page.text("21.33% / 17.96%", 2110, 1130, 180, 26, 12, ORANGE, True, "right")
-    page.text("Errors are concentrated in a small number of service pairs.", 1835, 1200, 475, 40, 15, BLUE, True)
-    page.text("Row-normalized matrices | highlighted pairs dominate residual confusion", 1825, 1252, 495, 38, 11, CHARCOAL)
+    _ga_panel(page, "D", "Class-level error structure", 1918, panel_y, 624, panel_h, BLUE, SOFT_BLUE)
+    _ga_mini_matrix(page, data.confusion["QUIC-40"], "q40", 1970, 1165, 220, "QUIC-40")
+    _ga_mini_matrix(page, data.confusion["QUIC-60"], "q60", 2250, 1165, 220, "QUIC-60")
+    page.rect(1970, 1425, 500, 78, SOFT_ORANGE, ORANGE, 1.5, 1)
+    page.text("AdAvoid -&gt; Gmail", 1990, 1435, 215, 25, 13, ORANGE, True, "left")
+    page.text("23.01% / 24.07%", 2225, 1435, 220, 25, 13, ORANGE, True, "right")
+    page.text("Play.cz Radio -&gt; Overleaf Compile", 1990, 1467, 315, 25, 11, ORANGE, True, "left")
+    page.text("21.33% / 17.96%", 2280, 1467, 165, 25, 11, ORANGE, True, "right")
+    page.text("Errors are concentrated in a small number of service pairs.", 1995, 1530, 455, 38, 14, BLUE, True)
+    page.text("Row-normalized matrices | highlighted pairs dominate residual confusion", 1975, 1582, 490, 34, 10, CHARCOAL)
     return page
 
 
