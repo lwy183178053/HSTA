@@ -62,6 +62,7 @@ SOFT_GREEN = "E8F1EA"
 ORANGE = "D87935"
 SOFT_ORANGE = "FFF3E8"
 TEAL = "4F8C86"
+ERROR_GRAY = "66717A"
 WHITE = "FFFFFF"
 
 
@@ -447,14 +448,20 @@ def _chart_axes(page: Page, x: float, y: float, w: float, h: float, y_min: float
         ty = y + h - (tick - y_min) / (y_max - y_min) * h
         page.line(x, ty, x + w, ty, "D9DEE2", 1)
         page.text(f"{tick:.0f}", x - 55, ty - 14, 45, 28, 13, CHARCOAL, False, "right")
-    page.text(y_label, x - 75, y + h / 2 - 52.5, 40, 105, 14, CHARCOAL, True, "center", rotation=270)
+    page.text(y_label, x - 160, y + h / 2 - 17, 160, 34, 14, CHARCOAL, True, "center", rotation=270)
 
 
-def _error_bar(page: Page, center_x: float, mean_y: float, error_height: float, color: str) -> None:
-    cap_half_width = 5
-    page.line(center_x, mean_y - error_height, center_x, mean_y + error_height, color, 1.1)
-    page.line(center_x - cap_half_width, mean_y - error_height, center_x + cap_half_width, mean_y - error_height, color, 1.1)
-    page.line(center_x - cap_half_width, mean_y + error_height, center_x + cap_half_width, mean_y + error_height, color, 1.1)
+def _error_bar(page: Page, center_x: float, mean_y: float, error_height: float, cell_prefix: str) -> None:
+    cap_half_width = 6
+    segments = {
+        "stem": (center_x, mean_y - error_height, center_x, mean_y + error_height),
+        "upper-cap": (center_x - cap_half_width, mean_y - error_height, center_x + cap_half_width, mean_y - error_height),
+        "lower-cap": (center_x - cap_half_width, mean_y + error_height, center_x + cap_half_width, mean_y + error_height),
+    }
+    for name, (x1, y1, x2, y2) in segments.items():
+        page.line(x1, y1, x2, y2, WHITE, 3.2, cell_id=f"{cell_prefix}-{name}-halo")
+    for name, (x1, y1, x2, y2) in segments.items():
+        page.line(x1, y1, x2, y2, ERROR_GRAY, 1.2, cell_id=f"{cell_prefix}-{name}-foreground")
 
 
 def build_main_page(data: FigureData) -> Page:
@@ -477,7 +484,7 @@ def build_main_page(data: FigureData) -> Page:
             page.text(f"{mean:.2f}", bx - 13, by - 31, bar_w + 26, 25, 11, colors[method_index], method == "HSTA")
             if std is not None:
                 err = std / 20 * h
-                _error_bar(page, bx + bar_w / 2, by, err, colors[method_index])
+                _error_bar(page, bx + bar_w / 2, by, err, f"p2-error-{task_index}-{method_index}")
         page.text(task, group_x - 10, y + h + 16, 260, 34, 16, CHARCOAL, True)
         if task_index < len(TASKS) - 1:
             sep = x + (task_index + 1) * group_width
@@ -528,7 +535,7 @@ def build_ablation_page(data: FigureData) -> Page:
             page.rect(bx, by, bar_w, bh, colors[variant_index], colors[variant_index], 1, 1)
             page.text(f"{mean:.2f}", bx - 13, by - 30, bar_w + 26, 24, 11, colors[variant_index], variant == "HSTA")
             err = std / 16 * h
-            _error_bar(page, bx + bar_w / 2, by, err, colors[variant_index])
+            _error_bar(page, bx + bar_w / 2, by, err, f"p3-error-{task_index}-{variant_index}")
         page.text(task, group_x - 35, y + h + 14, 260, 32, 16, CHARCOAL, True)
     page.text("M: Mamba    T: Transition MLP    A: Attention    R: Refinement MLP", 350, 885, 900, 30, 13, CHARCOAL)
     return page

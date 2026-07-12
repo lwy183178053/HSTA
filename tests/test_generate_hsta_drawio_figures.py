@@ -106,6 +106,25 @@ class DrawioDocumentTests(unittest.TestCase):
         self.assertGreaterEqual(values.count("A"), 3)
         self.assertGreaterEqual(values.count("R"), 5)
 
+    def test_macro_f1_axis_titles_and_error_bars_remain_legible(self):
+        axis_titles = [
+            cell
+            for cell in self.root.findall(".//mxCell")
+            if cell.attrib.get("value") == "Macro-F1 (%)" and "rotation=270" in cell.attrib.get("style", "")
+        ]
+        self.assertEqual(len(axis_titles), 2)
+        for title in axis_titles:
+            geometry = title.find("mxGeometry")
+            self.assertIsNotNone(geometry)
+            self.assertGreaterEqual(float(geometry.attrib["width"]), 150)
+
+        halo = self.root.find(".//mxCell[@id='p2-error-0-1-stem-halo']")
+        foreground = self.root.find(".//mxCell[@id='p2-error-0-1-stem-foreground']")
+        self.assertIsNotNone(halo)
+        self.assertIsNotNone(foreground)
+        self.assertIn("strokeColor=#FFFFFF", halo.attrib["style"])
+        self.assertIn("strokeColor=#66717A", foreground.attrib["style"])
+
     def test_confusion_cells_are_native_vectors(self):
         cells = self.root.findall(".//mxCell")
         quic40 = [cell for cell in cells if cell.attrib.get("id", "").startswith("p6-q40-cell-")]
