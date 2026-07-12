@@ -550,7 +550,7 @@ def build_parameter_page(data: FigureData) -> Page:
         page.line(x, ty, x + w, ty, "D9DEE2", 1)
         page.text(f"{tick}", x - 55, ty - 14, 45, 28, 13, CHARCOAL, False, "right")
     page.text("Parameters (M)", 600, 770, 350, 35, 17, CHARCOAL, True)
-    page.text("Average<br>40-class<br>Macro-F1 (%)", 55, 385, 60, 90, 13, CHARCOAL, True, "right")
+    page.text("Average 40-class Macro-F1 (%)", 5, 415, 190, 40, 13, CHARCOAL, True, "center", rotation=270)
     colors = {"GRU": MID_GRAY, "Transformer": VIOLET, "30pktTCNET": TEAL, "NetMamba": BLUE, "HSTA": ORANGE}
     offsets = {"GRU": (-65, 12), "Transformer": (18, -45), "30pktTCNET": (-140, -55), "NetMamba": (18, 12), "HSTA": (18, -48)}
     for model, color in colors.items():
