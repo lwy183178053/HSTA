@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import struct
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -18,6 +20,7 @@ from scripts.generate_hsta_drawio_figures import (
 WORKTREE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_ROOT = WORKTREE_ROOT.parents[1]
 PROJECT_ROOT = Path(os.environ.get("HSTA_PROJECT_ROOT", DEFAULT_DATA_ROOT)).resolve()
+EXPORT_ROOT = Path(os.environ.get("HSTA_EXPORT_ROOT", PROJECT_ROOT / "paper" / "figures_drawio")).resolve()
 
 
 class FigureDataTests(unittest.TestCase):
@@ -86,6 +89,19 @@ class DrawioDocumentTests(unittest.TestCase):
         self.assertNotRegex(values, r"[\u4e00-\u9fff]")
         self.assertNotIn("-adapted", values)
         self.assertNotRegex(values, r"\bFigure\b|\bFig\.?")
+        for internal_title in (
+            "Four encrypted-traffic tasks",
+            "Attention placement variants",
+            "Efficiency-performance landscape",
+            "Protocol transfer regimes",
+            "Class-level error structure",
+        ):
+            self.assertNotIn(internal_title, values)
+
+    def test_attention_schematics_match_experiment_layouts(self):
+        values = [cell.attrib.get("value", "") for cell in self.root.findall(".//mxCell")]
+        self.assertGreaterEqual(values.count("A"), 3)
+        self.assertGreaterEqual(values.count("R"), 5)
 
     def test_confusion_cells_are_native_vectors(self):
         cells = self.root.findall(".//mxCell")
@@ -100,6 +116,22 @@ class DrawioDocumentTests(unittest.TestCase):
             write_drawio(self.data, output)
             self.assertTrue(output.exists())
             self.assertEqual(len(ET.parse(output).getroot().findall("diagram")), 7)
+
+
+class ExportedPngTests(unittest.TestCase):
+    def test_exported_png_contract(self):
+        hashes = set()
+        for filename in OUTPUT_FILENAMES:
+            path = EXPORT_ROOT / filename
+            self.assertTrue(path.exists(), filename)
+            payload = path.read_bytes()
+            self.assertGreater(len(payload), 100_000, filename)
+            self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n", filename)
+            width, height = struct.unpack(">II", payload[16:24])
+            self.assertEqual(width, 2400, filename)
+            self.assertGreater(height, 1000, filename)
+            hashes.add(hashlib.sha256(payload).hexdigest())
+        self.assertEqual(len(hashes), len(OUTPUT_FILENAMES))
 
 
 if __name__ == "__main__":

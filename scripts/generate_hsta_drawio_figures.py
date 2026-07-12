@@ -340,7 +340,8 @@ class Page:
         return ident
 
     def circle(self, value: str, x: float, y: float, size: float, fill: str, stroke: str = CHARCOAL, font_size: int = 16, cell_id: str | None = None) -> str:
-        style = _box_style(fill, stroke, font_size, rounded=0, bold=True) + "ellipse;aspect=fixed;"
+        text_color = WHITE if value and fill == CHARCOAL else CHARCOAL
+        style = _box_style(fill, stroke, font_size, rounded=0, bold=True) + f"fontColor=#{text_color};ellipse;aspect=fixed;"
         return self.vertex(value, x, y, size, size, style, cell_id)
 
     def zone(self, number: int, label: str, x: float, y: float, w: float, h: float, fill: str, stroke: str) -> None:
@@ -396,25 +397,27 @@ def build_architecture_page() -> Page:
         _layer_stack(page, xs[index] + 8, top_y, 170, 95, fill, stroke, label)
         if index < 2:
             _arrow(page, xs[index] + 180, top_y + 48, xs[index + 1] - 6, top_y + 48, stroke)
-    _arrow(page, 988, 305, 988, 470, VIOLET)
+    page.line(985, 305, 985, 430, VIOLET, 3)
+    page.line(985, 430, 545, 430, VIOLET, 3)
+    _arrow(page, 545, 430, 545, 500, VIOLET)
     bottom = [
-        ("LayerNorm", SOFT_GREEN, GREEN),
-        ("Refinement MLP", SOFT_GREEN, GREEN),
         ("Attention", SOFT_ORANGE, ORANGE),
+        ("Refinement MLP", SOFT_GREEN, GREEN),
+        ("LayerNorm", SOFT_GREEN, GREEN),
     ]
     for index, (label, fill, stroke) in enumerate(bottom):
         page.vertex(label, xs[index], bottom_y, 180, 105, _box_style(fill, stroke, 18, 1, True))
-    _arrow(page, 895, bottom_y + 52, 855, bottom_y + 52, ORANGE)
-    _arrow(page, 675, bottom_y + 52, 635, bottom_y + 52, GREEN)
+    _arrow(page, 635, bottom_y + 52, 675, bottom_y + 52, ORANGE)
+    _arrow(page, 855, bottom_y + 52, 895, bottom_y + 52, GREEN)
     page.text("Linear-time state modeling", 455, 350, 390, 40, 16, BLUE, True)
     page.text("Selective global interaction", 785, 350, 270, 40, 16, ORANGE, True)
-    page.rect(845, 435, 235, 215, "none", ORANGE, 2, 1)
-    page.text("Q", 865, 460, 42, 34, 15, VIOLET, True)
-    page.text("K", 920, 460, 42, 34, 15, VIOLET, True)
-    page.text("V", 975, 460, 42, 34, 15, VIOLET, True)
-    page.line(885, 505, 945, 550, VIOLET, 1.5, False, True)
-    page.line(940, 505, 945, 550, VIOLET, 1.5, False, True)
-    page.line(995, 505, 945, 550, VIOLET, 1.5, False, True)
+    page.rect(425, 435, 235, 215, "none", ORANGE, 2, 1)
+    page.text("Q", 445, 460, 42, 34, 15, VIOLET, True)
+    page.text("K", 500, 460, 42, 34, 15, VIOLET, True)
+    page.text("V", 555, 460, 42, 34, 15, VIOLET, True)
+    page.line(465, 505, 525, 550, VIOLET, 1.5, False, True)
+    page.line(520, 505, 525, 550, VIOLET, 1.5, False, True)
+    page.line(575, 505, 525, 550, VIOLET, 1.5, False, True)
 
     page.zone(3, "Prediction head", 1145, 70, 310, 750, SOFT_ORANGE, ORANGE)
     _layer_stack(page, 1200, 180, 200, 90, WHITE, ORANGE, "Normalized token states")
@@ -424,8 +427,12 @@ def build_architecture_page() -> Page:
     page.vertex("Linear classifier<br><b>128 -&gt; C</b>", 1190, 525, 220, 90, _box_style(WHITE, ORANGE, 18, 1, False))
     _arrow(page, 1300, 620, 1300, 675, ORANGE)
     page.vertex("Class logits<br><b>[B, C]</b>", 1190, 685, 220, 80, _box_style(ORANGE, ORANGE, 20, 1, True) + f"fontColor=#{WHITE};")
-    _arrow(page, 375, 445, 405, 445, BLUE)
-    _arrow(page, 1115, 445, 1145, 445, ORANGE)
+    page.line(320, 609, 390, 609, BLUE, 3)
+    page.line(390, 609, 390, 253, BLUE, 3)
+    _arrow(page, 390, 253, 455, 253, BLUE)
+    page.line(1075, 557, 1125, 557, ORANGE, 3)
+    page.line(1125, 557, 1125, 225, ORANGE, 3)
+    _arrow(page, 1125, 225, 1200, 225, ORANGE)
     return page
 
 
@@ -441,7 +448,7 @@ def _chart_axes(page: Page, x: float, y: float, w: float, h: float, y_min: float
 
 def build_main_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[1], 1600, 940)
-    page.zone(1, "Four encrypted-traffic tasks", 45, 55, 1510, 820, LIGHT_GRAY, CHARCOAL)
+    page.rect(45, 55, 1510, 820, LIGHT_GRAY, CHARCOAL, 2, 1)
     x, y, w, h = 160, 150, 1320, 570
     _chart_axes(page, x, y, w, h, 80, 100, [80, 85, 90, 95, 100], "Macro-F1 (%)")
     methods = ["GRU", "Transformer", "30pktTCNET", "NetMamba", "HSTA"]
@@ -476,11 +483,10 @@ def build_main_page(data: FigureData) -> Page:
     return page
 
 
-def _attention_schematic(page: Page, x: float, y: float, label: str, active: int | None, color: str) -> None:
+def _attention_schematic(page: Page, x: float, y: float, label: str, sequence: list[str], color: str) -> None:
     page.text(label, x, y, 210, 28, 13, color, True)
-    labels = ["M", "M", "T", "A", "R"]
-    for index, stage in enumerate(labels):
-        fill = color if active == index or (label == "HSTA" and stage == "A") else WHITE
+    for index, stage in enumerate(sequence):
+        fill = color if stage == "A" else WHITE
         text_color = WHITE if fill != WHITE else CHARCOAL
         page.vertex(stage, x + index * 38 + 12, y + 36, 28, 28, _box_style(fill, color, 11, 1, True) + f"fontColor=#{text_color};")
         if index < 4:
@@ -489,12 +495,17 @@ def _attention_schematic(page: Page, x: float, y: float, label: str, active: int
 
 def build_ablation_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[2], 1600, 1000)
-    page.zone(1, "Attention placement variants", 45, 45, 1510, 900, SOFT_VIOLET, VIOLET)
+    page.rect(45, 45, 1510, 900, SOFT_VIOLET, VIOLET, 2, 1)
     variants = ["No attention", "Front attention", "Middle attention", "HSTA"]
     colors = [MID_GRAY, VIOLET, BLUE, ORANGE]
-    actives = [None, 0, 1, 3]
+    sequences = [
+        ["M", "M", "T", "R", "R"],
+        ["A", "M", "M", "T", "R"],
+        ["M", "A", "M", "T", "R"],
+        ["M", "M", "T", "A", "R"],
+    ]
     for index, variant in enumerate(variants):
-        _attention_schematic(page, 150 + index * 355, 120, variant, actives[index], colors[index])
+        _attention_schematic(page, 150 + index * 355, 120, variant, sequences[index], colors[index])
     x, y, w, h = 160, 300, 1320, 500
     _chart_axes(page, x, y, w, h, 84, 100, [84, 88, 92, 96, 100], "Macro-F1 (%)")
     group_width = w / len(TASKS)
@@ -520,7 +531,7 @@ def build_ablation_page(data: FigureData) -> Page:
 
 def build_parameter_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[3], 1500, 900)
-    page.zone(1, "Efficiency-performance landscape", 45, 55, 1410, 790, SOFT_GREEN, GREEN)
+    page.rect(45, 55, 1410, 790, SOFT_GREEN, GREEN, 2, 1)
     x, y, w, h = 180, 150, 1190, 570
     x_min, x_max = 0.15, 1.10
     y_min, y_max = 90.5, 97.0
@@ -554,7 +565,7 @@ def build_parameter_page(data: FigureData) -> Page:
 
 def build_transfer_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[4], 1600, 920)
-    page.zone(1, "Protocol transfer regimes", 45, 55, 1510, 810, SOFT_BLUE, BLUE)
+    page.rect(45, 55, 1510, 810, SOFT_BLUE, BLUE, 2, 1)
     x, y, w = 430, 200, 1020
     for tick in (0, 20, 40, 60, 80, 100):
         tx = x + tick / 100 * w
@@ -640,7 +651,7 @@ def _callout_pair(page: Page, data: ConfusionData, prefix: str, x: float, y: flo
 
 def build_confusion_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[5], 1900, 980)
-    page.zone(1, "Class-level error structure", 35, 35, 1830, 890, LIGHT_GRAY, CHARCOAL)
+    page.rect(35, 35, 1830, 890, LIGHT_GRAY, CHARCOAL, 2, 1)
     q40, q60 = data.confusion["QUIC-40"], data.confusion["QUIC-60"]
     x1, x2, y, size = 125, 980, 160, 570
     _draw_matrix(page, q40, "q40", x1, y, size, "QUIC-40")
