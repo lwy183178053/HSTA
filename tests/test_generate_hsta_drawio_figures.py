@@ -182,12 +182,35 @@ class GraphicalAbstractTests(unittest.TestCase):
         self.assertEqual(model.attrib["pageWidth"], "2600")
         self.assertEqual(model.attrib["pageHeight"], "1700")
 
+        band_heights = {}
         for cell_id in ("ga-data-band", "ga-model-band", "ga-evidence-band"):
             cell = self.root.find(f".//mxCell[@id='{cell_id}']")
             self.assertIsNotNone(cell, cell_id)
             geometry = cell.find("mxGeometry")
             self.assertIsNotNone(geometry, cell_id)
             self.assertGreaterEqual(float(geometry.attrib["width"]), 2520)
+            band_heights[cell_id] = float(geometry.attrib["height"])
+        self.assertGreaterEqual(band_heights["ga-data-band"], 500)
+        self.assertGreaterEqual(band_heights["ga-model-band"], 450)
+        self.assertLessEqual(band_heights["ga-evidence-band"], 500)
+
+    def test_graphical_abstract_pool_head_glyph_stays_inside_stage(self):
+        stage = self.root.find(".//mxCell[@id='ga-model-stage-7']")
+        self.assertIsNotNone(stage)
+        stage_geometry = stage.find("mxGeometry")
+        self.assertIsNotNone(stage_geometry)
+        stage_right = float(stage_geometry.attrib["x"]) + float(stage_geometry.attrib["width"])
+
+        logits = [
+            cell
+            for cell in self.root.findall(".//mxCell")
+            if cell.attrib.get("id", "").startswith("ga-pool-logit-")
+        ]
+        self.assertEqual(len(logits), 4)
+        for bar in logits:
+            geometry = bar.find("mxGeometry")
+            self.assertIsNotNone(geometry)
+            self.assertLessEqual(float(geometry.attrib["x"]) + float(geometry.attrib["width"]), stage_right)
 
     def test_write_graphical_abstract(self):
         with tempfile.TemporaryDirectory() as tmp:

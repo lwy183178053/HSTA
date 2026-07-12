@@ -14,7 +14,7 @@ Create a standalone graphical abstract that summarizes the complete HSTA paper i
 
 ## Composition
 
-Use a `2600 x 1700` landscape canvas organized as three full-width horizontal bands. The bands form a single top-to-bottom reading path and prevent the data-preparation narrative from being compressed into a side column.
+Use a `2600 x 1700` landscape canvas organized as three full-width horizontal bands. The bands form a single top-to-bottom reading path and prevent the data-preparation narrative from being compressed into a side column. Allocate most of the vertical space to data preparation and the HSTA model (`520` and `455` units respectively), then use a compact `490`-unit evidence band. Primary data/model labels use larger type than the supporting result annotations.
 
 ### Header
 
@@ -32,6 +32,7 @@ Use a `2600 x 1700` landscape canvas organized as three full-width horizontal ba
 
 - Present projection and positional embedding, two Mamba blocks, Transition MLP, Attention, Refinement MLP, LayerNorm and mean pooling, and class logits in one uninterrupted horizontal pipeline.
 - Close the band with a mechanism ribbon for sequential dependency modeling, discriminative packet reweighting, and compact flow representation.
+- Keep every internal glyph within its stage frame, including the complete pooling-and-logit illustration in `Pool + head`.
 
 ### Band 3: Experimental Evidence
 
