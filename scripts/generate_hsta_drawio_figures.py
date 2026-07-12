@@ -306,8 +306,11 @@ class Page:
         )
         return ident
 
-    def text(self, value: str, x: float, y: float, w: float, h: float, size: int = 16, color: str = CHARCOAL, bold: bool = False, align: str = "center", cell_id: str | None = None) -> str:
-        return self.vertex(value, x, y, w, h, _text_style(size, color, bold, align), cell_id)
+    def text(self, value: str, x: float, y: float, w: float, h: float, size: int = 16, color: str = CHARCOAL, bold: bool = False, align: str = "center", cell_id: str | None = None, rotation: int = 0) -> str:
+        style = _text_style(size, color, bold, align)
+        if rotation:
+            style += f"rotation={rotation};"
+        return self.vertex(value, x, y, w, h, style, cell_id)
 
     def rect(self, x: float, y: float, w: float, h: float, fill: str, stroke: str = "none", stroke_width: float = 1, rounded: int = 0, cell_id: str | None = None) -> str:
         style = _style(
@@ -443,7 +446,7 @@ def _chart_axes(page: Page, x: float, y: float, w: float, h: float, y_min: float
         ty = y + h - (tick - y_min) / (y_max - y_min) * h
         page.line(x, ty, x + w, ty, "D9DEE2", 1)
         page.text(f"{tick:.0f}", x - 55, ty - 14, 45, 28, 13, CHARCOAL, False, "right")
-    page.text(y_label, 10, y + h / 2 - 20, 120, 40, 15, CHARCOAL, True, "center")
+    page.text(y_label, x - 75, y + h / 2 - 52.5, 40, 105, 14, CHARCOAL, True, "center", rotation=270)
 
 
 def _error_bar(page: Page, center_x: float, mean_y: float, error_height: float, color: str) -> None:
@@ -547,7 +550,7 @@ def build_parameter_page(data: FigureData) -> Page:
         page.line(x, ty, x + w, ty, "D9DEE2", 1)
         page.text(f"{tick}", x - 55, ty - 14, 45, 28, 13, CHARCOAL, False, "right")
     page.text("Parameters (M)", 600, 770, 350, 35, 17, CHARCOAL, True)
-    page.text("Average 40-class Macro-F1 (%)", 15, 410, 145, 40, 15, CHARCOAL, True)
+    page.text("Average<br>40-class<br>Macro-F1 (%)", 55, 385, 60, 90, 13, CHARCOAL, True, "right")
     colors = {"GRU": MID_GRAY, "Transformer": VIOLET, "30pktTCNET": TEAL, "NetMamba": BLUE, "HSTA": ORANGE}
     offsets = {"GRU": (-65, 12), "Transformer": (18, -45), "30pktTCNET": (-140, -55), "NetMamba": (18, 12), "HSTA": (18, -48)}
     for model, color in colors.items():
