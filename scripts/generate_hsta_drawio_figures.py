@@ -446,6 +446,13 @@ def _chart_axes(page: Page, x: float, y: float, w: float, h: float, y_min: float
     page.text(y_label, 10, y + h / 2 - 20, 120, 40, 15, CHARCOAL, True, "center")
 
 
+def _error_bar(page: Page, center_x: float, mean_y: float, error_height: float, color: str) -> None:
+    cap_half_width = 5
+    page.line(center_x, mean_y - error_height, center_x, mean_y + error_height, color, 1.1)
+    page.line(center_x - cap_half_width, mean_y - error_height, center_x + cap_half_width, mean_y - error_height, color, 1.1)
+    page.line(center_x - cap_half_width, mean_y + error_height, center_x + cap_half_width, mean_y + error_height, color, 1.1)
+
+
 def build_main_page(data: FigureData) -> Page:
     page = Page(PAGE_NAMES[1], 1600, 940)
     page.rect(45, 55, 1510, 820, LIGHT_GRAY, CHARCOAL, 2, 1)
@@ -466,10 +473,7 @@ def build_main_page(data: FigureData) -> Page:
             page.text(f"{mean:.2f}", bx - 13, by - 31, bar_w + 26, 25, 11, colors[method_index], method == "HSTA")
             if std is not None:
                 err = std / 20 * h
-                cx = bx + bar_w / 2
-                page.line(cx, by - err, cx, by + err, CHARCOAL, 1.5)
-                page.line(cx - 8, by - err, cx + 8, by - err, CHARCOAL, 1.5)
-                page.line(cx - 8, by + err, cx + 8, by + err, CHARCOAL, 1.5)
+                _error_bar(page, bx + bar_w / 2, by, err, colors[method_index])
         page.text(task, group_x - 10, y + h + 16, 260, 34, 16, CHARCOAL, True)
         if task_index < len(TASKS) - 1:
             sep = x + (task_index + 1) * group_width
@@ -520,10 +524,7 @@ def build_ablation_page(data: FigureData) -> Page:
             page.rect(bx, by, bar_w, bh, colors[variant_index], colors[variant_index], 1, 1)
             page.text(f"{mean:.2f}", bx - 13, by - 30, bar_w + 26, 24, 11, colors[variant_index], variant == "HSTA")
             err = std / 16 * h
-            cx = bx + bar_w / 2
-            page.line(cx, by - err, cx, by + err, CHARCOAL, 1.3)
-            page.line(cx - 8, by - err, cx + 8, by - err, CHARCOAL, 1.3)
-            page.line(cx - 8, by + err, cx + 8, by + err, CHARCOAL, 1.3)
+            _error_bar(page, bx + bar_w / 2, by, err, colors[variant_index])
         page.text(task, group_x - 35, y + h + 14, 260, 32, 16, CHARCOAL, True)
     page.text("M: Mamba    T: Transition MLP    A: Attention    R: Refinement MLP", 350, 885, 900, 30, 13, CHARCOAL)
     return page
