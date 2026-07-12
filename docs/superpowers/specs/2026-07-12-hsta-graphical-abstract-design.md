@@ -22,7 +22,7 @@ Create a standalone graphical abstract that summarizes the complete HSTA paper i
 
 ### Upper Narrative
 
-- Left input panel: CESNET-TLS22 and CESNET-QUIC22, bidirectional packet glyphs, first-30-packet window, and `[B, 30, 3]` tensor.
+- Left input panel: CESNET-TLS22 and CESNET-QUIC22, bidirectional packet glyphs, `flow_id` grouping, packet-order preservation, first-30-packet window, a representative `30 x 3` table, zero-padding, train-only standardization, privacy boundary, and `[B, 30, 3]` tensor.
 - Center model panel: projection and positional embedding, two Mamba blocks, Transition MLP, Attention, Refinement MLP, LayerNorm and mean pooling, and class logits.
 - Mechanism ribbon: sequential dependency modeling, discriminative packet reweighting, and compact flow representation.
 

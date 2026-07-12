@@ -743,9 +743,9 @@ def build_data_page() -> Page:
 
 def _ga_panel(page: Page, letter: str, title: str, x: float, y: float, w: float, h: float, color: str, fill: str) -> None:
     page.rect(x, y, w, h, WHITE, color, 2, 1)
-    page.rect(x, y, w, 58, fill, "none", 0, 1)
-    page.circle(letter, x + 16, y + 12, 34, color, color, 16)
-    page.text(title, x + 62, y + 10, w - 78, 38, 19, color, True, "left")
+    page.rect(x + 12, y + 10, w - 24, 50, fill, "none", 0, 1)
+    page.circle(letter, x + 24, y + 18, 34, color, color, 16)
+    page.text(title, x + 70, y + 16, w - 94, 36, 18, color, True, "left")
 
 
 def _ga_stage_box(page: Page, number: int, label: str, x: float, y: float, w: float, h: float, fill: str, stroke: str) -> None:
@@ -828,18 +828,42 @@ def build_graphical_abstract_page(data: FigureData) -> Page:
     page.rect(35, 165, 430, 520, SOFT_BLUE, BLUE, 2, 1)
     page.circle("1", 55, 185, 38, BLUE, BLUE, 16)
     page.text("Privacy-preserving input", 105, 181, 320, 44, 22, BLUE, True, "left")
-    page.vertex("CESNET-TLS22", 72, 248, 155, 50, _box_style(WHITE, BLUE, 15, 1, True))
-    page.vertex("CESNET-QUIC22", 242, 248, 175, 50, _box_style(WHITE, BLUE, 15, 1, True))
-    _packet_strip(page, 78, 335, 8, 0.72)
-    page.text("Bidirectional encrypted packet stream", 65, 407, 365, 30, 14, BLUE, True)
-    for index, (symbol, label, color) in enumerate(
-        [("|s|", "Packet size", BLUE), ("d", "Direction", ORANGE), ("dt", "Inter-arrival time", GREEN)]
-    ):
-        cx = 76 + index * 118
-        page.circle(symbol, cx, 468, 50, WHITE, color, 15)
-        page.text(label, cx - 18, 522, 86, 34, 11, color, True)
-    _layer_stack(page, 150, 580, 180, 62, WHITE, BLUE, "Tensor [B, 30, 3]")
-    page.text("First 30 packets | truncate or zero-pad", 72, 648, 345, 25, 12, CHARCOAL, True)
+    page.vertex("CESNET-TLS22", 68, 238, 158, 42, _box_style(WHITE, BLUE, 14, 1, True))
+    page.vertex("CESNET-QUIC22", 240, 238, 178, 42, _box_style(WHITE, BLUE, 14, 1, True))
+    _packet_strip(page, 76, 292, 8, 0.54)
+    process = [("flow_id", BLUE, SOFT_BLUE), ("ordered packets", VIOLET, SOFT_VIOLET), ("first 30", ORANGE, SOFT_ORANGE)]
+    for index, (label, stroke, fill) in enumerate(process):
+        px = 62 + index * 122
+        page.vertex(label, px, 336, 102, 34, _box_style(fill, stroke, 11, 1, True))
+        if index < 2:
+            _arrow(page, px + 105, 353, px + 118, 353, stroke)
+
+    table_x, table_y, col_w, row_h = 64, 386, 84, 27
+    columns = ["pkt", "size", "dir.", "delta t"]
+    for col, label in enumerate(columns):
+        page.vertex(label, table_x + col * col_w, table_y, col_w, row_h, _box_style(SOFT_BLUE, BLUE, 10, 0, True))
+    rows = [
+        ("1", "s1", "+1", "dt1"),
+        ("2", "s2", "-1", "dt2"),
+        ("...", "...", "...", "..."),
+        ("30", "s30", "+/-1", "dt30"),
+        ("pad", "0", "0", "0"),
+    ]
+    for row_index, values in enumerate(rows):
+        for col, value in enumerate(values):
+            fill = LIGHT_GRAY if row_index == len(rows) - 1 else WHITE
+            page.vertex(value, table_x + col * col_w, table_y + (row_index + 1) * row_h, col_w, row_h, _box_style(fill, "9CB6C9", 10, 0, False))
+
+    features = [
+        ("Packet size", BLUE, SOFT_BLUE),
+        ("Direction", ORANGE, SOFT_ORANGE),
+        ("Inter-arrival time", GREEN, SOFT_GREEN),
+    ]
+    for index, (label, stroke, fill) in enumerate(features):
+        page.vertex(label, 62 + index * 116, 558, 106, 34, _box_style(fill, stroke, 10, 1, True))
+    _layer_stack(page, 145, 592, 175, 44, WHITE, BLUE, "Tensor [B, 30, 3]")
+    page.text("Truncate / zero-pad | train-only standardization", 58, 653, 350, 17, 11, GREEN, True)
+    page.text("No payload | No DPI | No domains", 86, 670, 295, 14, 10, ORANGE, True)
 
     page.rect(495, 165, 1870, 520, SOFT_VIOLET, VIOLET, 2, 1)
     page.circle("2", 515, 185, 38, VIOLET, VIOLET, 16)
