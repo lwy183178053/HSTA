@@ -9,11 +9,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from scripts.generate_hsta_drawio_figures import (
+    GRAPHICAL_ABSTRACT_FILENAME,
     OUTPUT_FILENAMES,
     PAGE_NAMES,
     build_drawio_document,
+    build_graphical_abstract_document,
     load_figure_data,
     write_drawio,
+    write_graphical_abstract,
 )
 
 
@@ -118,6 +121,45 @@ class DrawioDocumentTests(unittest.TestCase):
             self.assertEqual(len(ET.parse(output).getroot().findall("diagram")), 7)
 
 
+class GraphicalAbstractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = load_figure_data(PROJECT_ROOT)
+        cls.xml_text = build_graphical_abstract_document(cls.data)
+        cls.root = ET.fromstring(cls.xml_text)
+
+    def test_graphical_abstract_is_one_native_page(self):
+        pages = self.root.findall("diagram")
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0].attrib["name"], "Graphical Abstract")
+        self.assertGreater(len(self.root.findall(".//mxCell[@vertex='1']")), 5_300)
+        self.assertNotIn("data:image", self.xml_text)
+
+    def test_graphical_abstract_integrates_paper_story(self):
+        values = "\n".join(cell.attrib.get("value", "") for cell in self.root.findall(".//mxCell"))
+        for label in (
+            "Privacy-preserving input",
+            "HSTA representation and classification pipeline",
+            "Four-task performance",
+            "Attention placement",
+            "Efficiency and transfer",
+            "Class-level error structure",
+            "91.09",
+            "96.78",
+            "0.602 M parameters",
+        ):
+            self.assertIn(label, values)
+        self.assertNotRegex(values, r"[\u4e00-\u9fff]")
+        self.assertNotIn("-adapted", values)
+
+    def test_write_graphical_abstract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "graphical.drawio"
+            write_graphical_abstract(self.data, output)
+            self.assertTrue(output.exists())
+            self.assertEqual(len(ET.parse(output).getroot().findall("diagram")), 1)
+
+
 class ExportedPngTests(unittest.TestCase):
     def test_exported_png_contract(self):
         hashes = set()
@@ -132,6 +174,16 @@ class ExportedPngTests(unittest.TestCase):
             self.assertGreater(height, 1000, filename)
             hashes.add(hashlib.sha256(payload).hexdigest())
         self.assertEqual(len(hashes), len(OUTPUT_FILENAMES))
+
+    def test_graphical_abstract_png_contract(self):
+        path = EXPORT_ROOT / GRAPHICAL_ABSTRACT_FILENAME
+        self.assertTrue(path.exists(), path.name)
+        payload = path.read_bytes()
+        self.assertGreater(len(payload), 200_000)
+        self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", payload[16:24])
+        self.assertEqual(width, 3000)
+        self.assertGreater(height, 1400)
 
 
 if __name__ == "__main__":

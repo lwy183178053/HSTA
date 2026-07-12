@@ -48,6 +48,7 @@ OUTPUT_FILENAMES = [
     "fig6_confusion_patterns.png",
     "fig7_data_processing_pipeline.png",
 ]
+GRAPHICAL_ABSTRACT_FILENAME = "graphical_abstract_hsta.png"
 
 CHARCOAL = "35414A"
 MID_GRAY = "AEB6BD"
@@ -740,6 +741,268 @@ def build_data_page() -> Page:
     return page
 
 
+def _ga_panel(page: Page, letter: str, title: str, x: float, y: float, w: float, h: float, color: str, fill: str) -> None:
+    page.rect(x, y, w, h, WHITE, color, 2, 1)
+    page.rect(x, y, w, 58, fill, "none", 0, 1)
+    page.circle(letter, x + 16, y + 12, 34, color, color, 16)
+    page.text(title, x + 62, y + 10, w - 78, 38, 19, color, True, "left")
+
+
+def _ga_stage_box(page: Page, number: int, label: str, x: float, y: float, w: float, h: float, fill: str, stroke: str) -> None:
+    page.rect(x, y, w, h, fill, stroke, 2, 1)
+    page.circle(str(number), x + 12, y + 12, 28, stroke, stroke, 13)
+    page.text(label, x + 48, y + 9, w - 58, 42, 16, stroke, True, "left")
+
+
+def _ga_sequence_glyph(page: Page, x: float, y: float, color: str) -> None:
+    values = [22, 52, 34, 68, 43]
+    for index, value in enumerate(values):
+        px = x + index * 28
+        page.rect(px, y + 55 - value / 2, 16, value / 2, color if index % 2 == 0 else WHITE, color, 1, 1)
+    page.line(x + 8, y + 56, x + 120, y + 56, color, 1.5)
+
+
+def _ga_network(page: Page, x: float, y: float, color: str) -> None:
+    left = [(x, y + offset) for offset in (0, 28, 56, 84)]
+    right = [(x + 90, y + offset) for offset in (14, 42, 70)]
+    for lx, ly in left:
+        for rx, ry in right:
+            page.line(lx + 10, ly + 10, rx + 10, ry + 10, color, 0.7)
+    for px, py in (*left, *right):
+        page.circle("", px, py, 20, WHITE, color, 8)
+
+
+def _ga_heatmap(page: Page, x: float, y: float, color: str, fill: str) -> None:
+    intensities = [0, 2, 5, 1, 3, 7, 4, 2, 1, 4, 6, 3, 0, 2, 3, 7]
+    palette = [WHITE, "F7F2FA", "E9DFF0", "D6C3E1", "B99FCC", "9D79B5", VIOLET, "5F4675"]
+    for row in range(4):
+        for col in range(4):
+            page.rect(x + col * 27, y + row * 27, 24, 24, palette[intensities[row * 4 + col]], "D8CCE0", 0.6, 0)
+    page.text("Q / K / V", x, y + 114, 105, 22, 11, color, True)
+
+
+def _ga_mini_matrix(page: Page, data: ConfusionData, prefix: str, x: float, y: float, size: float, label: str) -> None:
+    n = len(data.matrix)
+    cell = size / n
+    page.text(label, x, y - 28, size, 24, 13, BLUE, True)
+    for row_index, row in enumerate(data.matrix):
+        total = max(1, sum(row))
+        for col_index, count in enumerate(row):
+            page.rect(
+                x + col_index * cell,
+                y + row_index * cell,
+                cell + 0.03,
+                cell + 0.03,
+                _heat_color(count / total),
+                "none",
+                0,
+                0,
+                f"ga-{prefix}-cell-{row_index}-{col_index}",
+            )
+    page.rect(x, y, size, size, "none", CHARCOAL, 1.5, 0)
+
+
+def build_graphical_abstract_page(data: FigureData) -> Page:
+    page = Page("Graphical Abstract", 2400, 1350)
+    page.rect(25, 25, 2350, 112, CHARCOAL, CHARCOAL, 0, 1)
+    page.text("HSTA", 62, 42, 175, 66, 38, WHITE, True, "left")
+    page.text(
+        "Hybrid state-space transition-attention modeling for encrypted QUIC/TLS traffic classification",
+        245,
+        43,
+        1340,
+        62,
+        23,
+        WHITE,
+        True,
+        "left",
+    )
+    badges = [
+        ("30 packets", BLUE, SOFT_BLUE),
+        ("3 side-channel features", GREEN, SOFT_GREEN),
+        ("No payload / DPI", ORANGE, SOFT_ORANGE),
+    ]
+    for index, (label, stroke, fill) in enumerate(badges):
+        page.vertex(label, 1610 + index * 242, 53, 220, 48, _box_style(fill, stroke, 14, 1, True))
+
+    page.rect(35, 165, 430, 520, SOFT_BLUE, BLUE, 2, 1)
+    page.circle("1", 55, 185, 38, BLUE, BLUE, 16)
+    page.text("Privacy-preserving input", 105, 181, 320, 44, 22, BLUE, True, "left")
+    page.vertex("CESNET-TLS22", 72, 248, 155, 50, _box_style(WHITE, BLUE, 15, 1, True))
+    page.vertex("CESNET-QUIC22", 242, 248, 175, 50, _box_style(WHITE, BLUE, 15, 1, True))
+    _packet_strip(page, 78, 335, 8, 0.72)
+    page.text("Bidirectional encrypted packet stream", 65, 407, 365, 30, 14, BLUE, True)
+    for index, (symbol, label, color) in enumerate(
+        [("|s|", "Packet size", BLUE), ("d", "Direction", ORANGE), ("dt", "Inter-arrival time", GREEN)]
+    ):
+        cx = 76 + index * 118
+        page.circle(symbol, cx, 468, 50, WHITE, color, 15)
+        page.text(label, cx - 18, 522, 86, 34, 11, color, True)
+    _layer_stack(page, 150, 580, 180, 62, WHITE, BLUE, "Tensor [B, 30, 3]")
+    page.text("First 30 packets | truncate or zero-pad", 72, 648, 345, 25, 12, CHARCOAL, True)
+
+    page.rect(495, 165, 1870, 520, SOFT_VIOLET, VIOLET, 2, 1)
+    page.circle("2", 515, 185, 38, VIOLET, VIOLET, 16)
+    page.text("HSTA representation and classification pipeline", 565, 181, 720, 44, 22, VIOLET, True, "left")
+    stages = [
+        ("Projection +<br>position", SOFT_BLUE, BLUE, 185),
+        ("Mamba<br>block 1", SOFT_BLUE, BLUE, 190),
+        ("Mamba<br>block 2", SOFT_BLUE, BLUE, 190),
+        ("Transition<br>MLP", SOFT_GREEN, GREEN, 200),
+        ("Attention", SOFT_VIOLET, VIOLET, 205),
+        ("Refinement<br>MLP", SOFT_ORANGE, ORANGE, 205),
+        ("Pool + head", LIGHT_GRAY, CHARCOAL, 215),
+    ]
+    sx = 530
+    stage_positions = []
+    for index, (label, fill, stroke, width) in enumerate(stages):
+        _ga_stage_box(page, index + 1, label, sx, 252, width, 240, fill, stroke)
+        stage_positions.append((sx, width, stroke))
+        sx += width + 45
+    for index, (sx, width, stroke) in enumerate(stage_positions[:-1]):
+        _arrow(page, sx + width, 370, stage_positions[index + 1][0], 370, stroke)
+    _ga_sequence_glyph(page, 560, 350, BLUE)
+    _ga_sequence_glyph(page, 780, 350, BLUE)
+    _ga_sequence_glyph(page, 1015, 350, BLUE)
+    _ga_network(page, 1245, 338, GREEN)
+    _ga_heatmap(page, 1510, 330, VIOLET, SOFT_VIOLET)
+    _ga_network(page, 1760, 338, ORANGE)
+    for row in range(4):
+        page.rect(2035, 335 + row * 28, 65 - row * 8, 18, SOFT_BLUE, BLUE, 1, 1)
+    page.line(2115, 330, 2115, 455, CHARCOAL, 2)
+    for index, height in enumerate((35, 62, 88, 52)):
+        page.rect(2150 + index * 35, 455 - height, 22, height, ORANGE, ORANGE, 1, 1)
+    descriptions = [
+        "3 -&gt; 128",
+        "state dynamics",
+        "long-range context",
+        "nonlinear transition",
+        "packet reweighting",
+        "feature refinement",
+        "class logits",
+    ]
+    for index, (sx, width, stroke) in enumerate(stage_positions):
+        page.text(descriptions[index], sx + 12, 507, width - 24, 30, 12, stroke, True)
+    page.rect(535, 558, 1785, 88, WHITE, "B7A7C6", 1.5, 1)
+    mechanism = [
+        ("Sequential dependency modeling", BLUE),
+        ("Discriminative packet reweighting", VIOLET),
+        ("Compact flow representation", ORANGE),
+    ]
+    for index, (label, color) in enumerate(mechanism):
+        mx = 575 + index * 565
+        page.circle(str(index + 1), mx, 579, 34, color, color, 14)
+        page.text(label, mx + 48, 571, 460, 50, 16, color, True, "left")
+        if index < 2:
+            _arrow(page, mx + 500, 596, mx + 545, 596, color)
+    _arrow(page, 465, 420, 495, 420, BLUE)
+
+    panel_y, panel_h = 720, 600
+    _ga_panel(page, "A", "Four-task performance", 35, panel_y, 550, panel_h, ORANGE, SOFT_ORANGE)
+    chart_x, chart_y, chart_w, chart_h = 95, 850, 430, 300
+    page.line(chart_x, chart_y, chart_x, chart_y + chart_h, CHARCOAL, 1.5)
+    page.line(chart_x, chart_y + chart_h, chart_x + chart_w, chart_y + chart_h, CHARCOAL, 1.5)
+    group_w = chart_w / 4
+    methods = [("GRU", MID_GRAY), ("NetMamba", BLUE), ("HSTA", ORANGE)]
+    for task_index, task in enumerate(TASKS):
+        gx = chart_x + task_index * group_w + 17
+        for method_index, (method, color) in enumerate(methods):
+            value = data.main[method][task][0]
+            bar_h = (value - 84) / 14 * chart_h
+            bx = gx + method_index * 25
+            page.rect(bx, chart_y + chart_h - bar_h, 18, bar_h, color, color, 0.5, 1)
+        page.text(task, gx - 13, chart_y + chart_h + 10, 103, 26, 11, CHARCOAL, True)
+        page.text(f"{data.main['HSTA'][task][0]:.2f}", gx + 42, chart_y + chart_h - (data.main['HSTA'][task][0] - 84) / 14 * chart_h - 25, 58, 22, 10, ORANGE, True)
+    page.text("Best Macro-F1 on all four tasks", 95, 1205, 430, 32, 16, ORANGE, True)
+    page.text("QUIC gains are largest over strong sequence baselines", 75, 1245, 470, 34, 12, CHARCOAL)
+
+    _ga_panel(page, "B", "Attention placement", 605, panel_y, 550, panel_h, VIOLET, SOFT_VIOLET)
+    variants = [
+        ("No attention", "No attention", ["M", "M", "T", "R", "R"], MID_GRAY),
+        ("Front", "Front attention", ["A", "M", "M", "T", "R"], VIOLET),
+        ("Middle", "Middle attention", ["M", "A", "M", "T", "R"], BLUE),
+        ("HSTA", "HSTA", ["M", "M", "T", "A", "R"], ORANGE),
+    ]
+    averages = {
+        display_name: statistics.mean(data.ablation[data_key][task][0] for task in TASKS)
+        for display_name, data_key, _, _ in variants
+    }
+    for index, (name, _, sequence, color) in enumerate(variants):
+        vy = 815 + index * 93
+        page.text(name, 635, vy, 110, 28, 13, color, True, "left")
+        for stage_index, stage in enumerate(sequence):
+            fill = color if stage == "A" else WHITE
+            text_color = WHITE if fill != WHITE else CHARCOAL
+            page.vertex(stage, 755 + stage_index * 48, vy - 2, 34, 34, _box_style(fill, color, 11, 1, True) + f"fontColor=#{text_color};")
+            if stage_index < 4:
+                page.line(789 + stage_index * 48, vy + 15, 801 + stage_index * 48, vy + 15, color, 1, False, True)
+        page.text(f"{averages[name]:.2f}%", 1005, vy, 105, 28, 13, color, name == "HSTA", "right")
+    page.rect(650, 1195, 460, 80, SOFT_ORANGE, ORANGE, 1.5, 1)
+    page.text("Attention is most effective after state-space encoding and transition.", 675, 1208, 410, 52, 15, ORANGE, True)
+
+    _ga_panel(page, "C", "Efficiency and transfer", 1175, panel_y, 585, panel_h, GREEN, SOFT_GREEN)
+    scatter_x, scatter_y, scatter_w, scatter_h = 1235, 825, 460, 205
+    page.line(scatter_x, scatter_y, scatter_x, scatter_y + scatter_h, CHARCOAL, 1.2)
+    page.line(scatter_x, scatter_y + scatter_h, scatter_x + scatter_w, scatter_y + scatter_h, CHARCOAL, 1.2)
+    model_colors = {"GRU": MID_GRAY, "Transformer": VIOLET, "30pktTCNET": TEAL, "NetMamba": BLUE, "HSTA": ORANGE}
+    for model, color in model_colors.items():
+        param = data.parameters[model]
+        perf = statistics.mean([data.main[model]["QUIC-40"][0], data.main[model]["TLS-40"][0]])
+        px = scatter_x + (param - 0.15) / 0.95 * scatter_w
+        py = scatter_y + scatter_h - (perf - 90.5) / 6.5 * scatter_h
+        page.circle("", px - 8, py - 8, 16 if model != "HSTA" else 23, color, WHITE, 8)
+        if model in {"HSTA", "NetMamba", "Transformer"}:
+            page.text(model, px + 10, py - 15, 100, 24, 10, color, model == "HSTA", "left")
+    page.text("Parameters (M)", 1375, 1042, 180, 24, 11, CHARCOAL, True)
+    page.vertex("HSTA: 0.602 M parameters", 1255, 1080, 420, 48, _box_style(SOFT_ORANGE, ORANGE, 15, 1, True))
+    transfer_values = [data.transfer["Full fine-tuning"][task] for task in TRANSFER_TASKS]
+    transfer_labels = [("QUIC", "TLS-40"), ("TLS", "QUIC-40"), ("QUIC", "TLS-60"), ("TLS", "QUIC-60")]
+    for index, ((source, target), value) in enumerate(zip(transfer_labels, transfer_values)):
+        ty = 1155 + (index % 2) * 62
+        tx = 1215 + (index // 2) * 270
+        page.vertex(source, tx, ty, 62, 32, _box_style(SOFT_BLUE, BLUE, 10, 1, True))
+        _arrow(page, tx + 68, ty + 16, tx + 100, ty + 16, BLUE)
+        page.vertex(target, tx + 106, ty, 78, 32, _box_style(SOFT_ORANGE, ORANGE, 10, 1, True))
+        page.text(f"{value:.2f}", tx + 190, ty + 2, 60, 28, 12, ORANGE, True)
+    page.text("Full fine-tuning remains effective across protocols", 1225, 1283, 475, 25, 12, GREEN, True)
+
+    _ga_panel(page, "D", "Class-level error structure", 1780, panel_y, 585, panel_h, BLUE, SOFT_BLUE)
+    _ga_mini_matrix(page, data.confusion["QUIC-40"], "q40", 1828, 830, 210, "QUIC-40")
+    _ga_mini_matrix(page, data.confusion["QUIC-60"], "q60", 2105, 830, 210, "QUIC-60")
+    page.rect(1825, 1088, 490, 78, SOFT_ORANGE, ORANGE, 1.5, 1)
+    page.text("AdAvoid -&gt; Gmail", 1845, 1098, 215, 26, 14, ORANGE, True, "left")
+    page.text("23.01% / 24.07%", 2075, 1098, 215, 26, 14, ORANGE, True, "right")
+    page.text("Play.cz Radio -&gt; Overleaf Compile", 1845, 1130, 300, 26, 12, ORANGE, True, "left")
+    page.text("21.33% / 17.96%", 2110, 1130, 180, 26, 12, ORANGE, True, "right")
+    page.text("Errors are concentrated in a small number of service pairs.", 1835, 1200, 475, 40, 15, BLUE, True)
+    page.text("Row-normalized matrices | highlighted pairs dominate residual confusion", 1825, 1252, 495, 38, 11, CHARCOAL)
+    return page
+
+
+def build_graphical_abstract_document(data: FigureData) -> str:
+    page = build_graphical_abstract_page(data)
+    mxfile = ET.Element(
+        "mxfile",
+        {
+            "host": "Electron",
+            "agent": "Codex HSTA graphical abstract generator",
+            "version": "30.0.4",
+            "type": "device",
+            "compressed": "false",
+        },
+    )
+    diagram = ET.SubElement(mxfile, "diagram", {"id": "hsta-graphical-abstract", "name": page.name})
+    diagram.append(page.model)
+    ET.indent(mxfile, space="  ")
+    return ET.tostring(mxfile, encoding="unicode", xml_declaration=True)
+
+
+def write_graphical_abstract(data: FigureData, output_path: Path) -> None:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(build_graphical_abstract_document(data), encoding="utf-8")
+
+
 def build_drawio_document(data: FigureData) -> str:
     pages = [
         build_architecture_page(),
@@ -777,13 +1040,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate seven editable HSTA paper figures in draw.io format.")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--graphical-abstract-output", type=Path)
     args = parser.parse_args()
     project_root = args.project_root.resolve()
     output = args.output or project_root / "paper" / "figures_drawio" / "JNCA_HSTA_Figures.drawio"
+    graphical_output = (
+        args.graphical_abstract_output
+        or project_root / "paper" / "figures_drawio" / "JNCA_HSTA_Graphical_Abstract.drawio"
+    )
     data = load_figure_data(project_root)
     write_drawio(data, output)
+    write_graphical_abstract(data, graphical_output)
     print(f"Wrote {output}")
     print(f"Pages: {len(PAGE_NAMES)}")
+    print(f"Wrote {graphical_output}")
+    print("Graphical abstract pages: 1")
 
 
 if __name__ == "__main__":

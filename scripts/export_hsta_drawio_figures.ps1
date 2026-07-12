@@ -51,3 +51,31 @@ for ($index = 0; $index -lt $files.Count; $index++) {
     }
     Write-Output ("Exported page {0}: {1} ({2} bytes)" -f $index, $target, $item.Length)
 }
+
+$graphicalSource = Join-Path $outputDir 'JNCA_HSTA_Graphical_Abstract.drawio'
+$graphicalTarget = Join-Path $outputDir 'graphical_abstract_hsta.png'
+if (-not (Test-Path -LiteralPath $graphicalSource)) {
+    throw "Graphical abstract source not found: $graphicalSource"
+}
+$graphicalProfile = Join-Path $env:TEMP ("drawio-hsta-{0}-graphical" -f $PID)
+New-Item -ItemType Directory -Path $graphicalProfile -Force | Out-Null
+$graphicalArguments = @(
+    "--user-data-dir=$graphicalProfile",
+    '--disable-gpu',
+    '--export',
+    '--format', 'png',
+    '--page-index', '1',
+    '--width', '3000',
+    '--border', '20',
+    '--output', $graphicalTarget,
+    $graphicalSource
+)
+$graphicalProcess = Start-Process -FilePath $DrawioExe -ArgumentList $graphicalArguments -Wait -PassThru -WindowStyle Hidden
+if ($graphicalProcess.ExitCode -ne 0) {
+    throw "draw.io export failed for the graphical abstract with exit code $($graphicalProcess.ExitCode)"
+}
+$graphicalItem = Get-Item -LiteralPath $graphicalTarget -ErrorAction Stop
+if ($graphicalItem.Length -le 0) {
+    throw "draw.io export produced an empty graphical abstract: $graphicalTarget"
+}
+Write-Output ("Exported graphical abstract: {0} ({1} bytes)" -f $graphicalTarget, $graphicalItem.Length)
