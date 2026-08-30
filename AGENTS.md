@@ -1,105 +1,75 @@
-# Project Environment Notes
+# 项目环境说明
 
-Use this file first when starting a new Codex session in this repository.
+开始处理本项目时先阅读本文件。代码整理和实验运行必须遵守下面的环境与目录约定。
 
 ## Windows Python
 
-Do not use bare `python` from PowerShell in this project. It currently resolves to:
+不要在 PowerShell 中直接使用 `python`。当前它可能指向 Microsoft Store 启动器：
 
-```powershell
+```text
 C:\Users\Administrator\AppData\Local\Microsoft\WindowsApps\python.exe
 ```
 
-That is the Microsoft Store launcher stub and may fail silently.
-
-Use the project Anaconda interpreter instead:
+Windows 端统一使用项目 Anaconda 解释器：
 
 ```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' <script-or-module>
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' <脚本或模块>
 ```
 
-Known version:
+已知版本：Python 3.13.5。
+
+## WSL 与 CUDA
+
+训练和 Mamba/CUDA 实验使用 `Ubuntu-22.04`，Python 环境为：
 
 ```text
-Python 3.13.5
-```
-
-## WSL For Mamba/CUDA
-
-Use `Ubuntu-22.04` for WSL training and Mamba/CUDA work.
-
-Known good WSL Python:
-
-```bash
 /opt/traffic-mamba-venv/bin/python
 ```
 
-Known good checks:
+项目在 WSL 中的路径：
 
 ```text
-torch 2.11.0+cu128
-cuda True
-mamba_ssm ok
-```
-
-Project path inside WSL:
-
-```bash
 /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP
 ```
 
-Recommended PowerShell pattern:
+常用运行方式：
 
 ```powershell
 wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && source /opt/traffic-mamba-venv/bin/activate && python run_experiments.py --config configs/tls40_s.yaml --resume"
 ```
 
-Notes:
+注意事项：
 
-- `docker-desktop` is not a usable project shell.
-- `traffic-ubuntu-22.04` can see the project path but does not have `/opt/traffic-mamba-venv`.
-- The WSL default distro has been set to `Ubuntu-22.04`, but explicit `wsl -d Ubuntu-22.04 -- ...` is still preferred in scripts and one-off commands.
+- `docker-desktop` 不是可用的项目运行环境。
+- `traffic-ubuntu-22.04` 能看到项目目录，但没有 `/opt/traffic-mamba-venv`。
+- 即使默认发行版已设置为 `Ubuntu-22.04`，脚本中仍应显式指定 `wsl -d Ubuntu-22.04`。
 
-## Quick Check
+## 目录约定
 
-Run this from PowerShell when unsure:
+`paper/` 是论文只读归档目录。整理代码时严禁删除、移动、重命名或修改其中任何文件。
+
+实验结果目录：
+
+- 主任务：`results/tls40_s`、`results/quic40_s`、`results/tls60_s`、`results/quic60_s`
+- 适配方法：`results/sota_adapted`
+- HSTA 消融：`results/hsta_no_attention`、`results/hsta_flash_ablation`
+- 近期基线：`results/recent_journal_baselines`
+- HSTA 主实验：`results/hsta_flash`
+- 效率测试：`results/efficiency_benchmark`
+
+## 常用入口
+
+```bash
+bash scripts/run_wsl_experiments.sh main_all
+bash scripts/run_wsl_experiments.sh sota_all
+bash scripts/run_wsl_experiments.sh recent_all
+bash scripts/run_wsl_experiments.sh ablation_all
+bash scripts/run_wsl_experiments.sh hsta_flash_all
+bash scripts/run_wsl_experiments.sh efficiency
+```
+
+Windows 环境检查：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
 ```
-
-## Results Layout
-
-`paper/` is an archival directory for manuscript files. Do not delete, move,
-rename, or rewrite anything under `paper/` while changing the codebase.
-
-Main task results stay under:
-
-- `results/tls40_s`
-- `results/quic40_s`
-- `results/tls60_s`
-- `results/quic60_s`
-
-Adapted SOTA comparisons are configured separately in `configs/sota_adapted.yaml` and should stay under:
-
-- `results/sota_adapted/all_results.csv`
-- `results/sota_adapted/<exp_name>`
-
-HSTA no-attention ablation comparisons are configured separately in `configs/hsta_no_attention.yaml` and should stay under:
-
-- `results/hsta_no_attention/all_results.csv`
-- `results/hsta_no_attention/<exp_name>`
-
-Recent journal baselines and HSTA FlashAttention experiments stay under:
-
-- `results/recent_journal_baselines`
-- `results/hsta_flash`
-- `results/hsta_flash_ablation`
-
-Efficiency benchmark results, including adapted SOTA rows, should stay in `results/efficiency_benchmark`.
-
-Use `bash scripts/run_wsl_experiments.sh main_all` for the GRU and Transformer baselines across all four tasks and three seeds.
-Use `bash scripts/run_wsl_experiments.sh sota_all` for the two adapted SOTA models across all four tasks and three seeds.
-Use `bash scripts/run_wsl_experiments.sh recent_all` for SRViT, TrafficAudio, and BPF-GNN across all four tasks and three seeds.
-Use `bash scripts/run_wsl_experiments.sh ablation_all` for HSTA no-attention and attention-position ablations.
-Use `bash scripts/run_wsl_experiments.sh hsta_flash_all` for HSTA FlashAttention main and position experiments.

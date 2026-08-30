@@ -100,11 +100,11 @@ def summarize_results(paths: list[Path]) -> pd.DataFrame:
 
 def _markdown(summary: pd.DataFrame) -> str:
     lines = [
-        "# Paper Main Results",
+        "# 论文主结果",
         "",
-        "All values are percentages reported as mean +/- standard deviation over seeds 42, 2025, and 3407.",
+        "表中数值为百分比，表示随机种子 42、2025、3407 的均值 +/- 标准差。",
         "",
-        "| Model | Task | Accuracy | Macro-Precision | Macro-Recall | Macro-F1 | Seeds |",
+        "| 模型 | 任务 | 准确率 | 宏平均精确率 | 宏平均召回率 | 宏平均 F1 | 有效种子数 |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for row in summary.to_dict("records"):
@@ -115,15 +115,15 @@ def _markdown(summary: pd.DataFrame) -> str:
     lines.extend(
         [
             "",
-            "SRViT, TrafficAudio, and BPF-GNN are unified-input reimplementations of their published core structures using the shared [B,30,3] packet side-channel input and training protocol.",
-            "HSTA uses the strict PyTorch SDPA FlashAttention backend for the final model table.",
+            "SRViT、TrafficAudio 和 BPF-GNN 是在统一的 [B,30,3] 输入和训练协议下，对论文核心结构进行的重实现。",
+            "最终 HSTA 主表使用严格的 PyTorch SDPA FlashAttention 后端。",
         ]
     )
     return "\n".join(lines) + "\n"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build the fixed eight-model paper result table.")
+    parser = argparse.ArgumentParser(description="生成固定八模型论文主结果表。")
     parser.add_argument("--inputs", nargs="*", default=list(DEFAULT_INPUTS))
     parser.add_argument("--output-dir", default="results/recent_journal_baselines")
     args = parser.parse_args()
