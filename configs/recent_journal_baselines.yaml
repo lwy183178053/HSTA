@@ -1,0 +1,303 @@
+base:
+  output_dir: results/recent_journal_baselines
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model_cfg:
+    dim: 128
+    depth: 4
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    max_len: 30
+
+experiments:
+  - exp_name: srvit_tls40_s_seed42
+    model: srvit
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_tls40_s_seed2025
+    model: srvit
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_tls40_s_seed3407
+    model: srvit
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic40_s_seed42
+    model: srvit
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic40_s_seed2025
+    model: srvit
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic40_s_seed3407
+    model: srvit
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_tls60_s_seed42
+    model: srvit
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_tls60_s_seed2025
+    model: srvit
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_tls60_s_seed3407
+    model: srvit
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic60_s_seed42
+    model: srvit
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic60_s_seed2025
+    model: srvit
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: srvit_quic60_s_seed3407
+    model: srvit
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      patch_kernel_sizes: [3, 5, 7]
+  - exp_name: trafficaudio_tls40_s_seed42
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_tls40_s_seed2025
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_tls40_s_seed3407
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic40_s_seed42
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic40_s_seed2025
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic40_s_seed3407
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_tls60_s_seed42
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_tls60_s_seed2025
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_tls60_s_seed3407
+    model: trafficaudio
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic60_s_seed42
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic60_s_seed2025
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: trafficaudio_quic60_s_seed3407
+    model: trafficaudio
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      n_fft: 16
+      win_length: 16
+      hop_length: 4
+      n_mels: 16
+      n_mfcc: 8
+  - exp_name: bpf_gnn_tls40_s_seed42
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_tls40_s_seed2025
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_tls40_s_seed3407
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic40_s_seed42
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic40_s_seed2025
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic40_s_seed3407
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_tls60_s_seed42
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_tls60_s_seed2025
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_tls60_s_seed3407
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic60_s_seed42
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic60_s_seed2025
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      top_k: 4
+      num_subflows: 5
+  - exp_name: bpf_gnn_quic60_s_seed3407
+    model: bpf_gnn
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      top_k: 4
+      num_subflows: 5

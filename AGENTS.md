@@ -70,6 +70,9 @@ powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
 
 ## Results Layout
 
+`paper/` is an archival directory for manuscript files. Do not delete, move,
+rename, or rewrite anything under `paper/` while changing the codebase.
+
 Main task results stay under:
 
 - `results/tls40_s`
@@ -82,12 +85,21 @@ Adapted SOTA comparisons are configured separately in `configs/sota_adapted.yaml
 - `results/sota_adapted/all_results.csv`
 - `results/sota_adapted/<exp_name>`
 
-Hybrid ablation comparisons are configured separately in `configs/ablation_s.yaml` and should stay under:
+HSTA no-attention ablation comparisons are configured separately in `configs/hsta_no_attention.yaml` and should stay under:
 
-- `results/ablation_s/all_results.csv`
-- `results/ablation_s/<exp_name>`
+- `results/hsta_no_attention/all_results.csv`
+- `results/hsta_no_attention/<exp_name>`
+
+Recent journal baselines and HSTA FlashAttention experiments stay under:
+
+- `results/recent_journal_baselines`
+- `results/hsta_flash`
+- `results/hsta_flash_ablation`
 
 Efficiency benchmark results, including adapted SOTA rows, should stay in `results/efficiency_benchmark`.
 
+Use `bash scripts/run_wsl_experiments.sh main_all` for the GRU and Transformer baselines across all four tasks and three seeds.
 Use `bash scripts/run_wsl_experiments.sh sota_all` for the two adapted SOTA models across all four tasks and three seeds.
-Use `bash scripts/run_wsl_experiments.sh ablation_all` for Hybrid ablation variants across all four tasks and three seeds.
+Use `bash scripts/run_wsl_experiments.sh recent_all` for SRViT, TrafficAudio, and BPF-GNN across all four tasks and three seeds.
+Use `bash scripts/run_wsl_experiments.sh ablation_all` for HSTA no-attention and attention-position ablations.
+Use `bash scripts/run_wsl_experiments.sh hsta_flash_all` for HSTA FlashAttention main and position experiments.

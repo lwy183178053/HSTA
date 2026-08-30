@@ -1,12 +1,17 @@
 import torch
 import torch.nn as nn
 
-from .lora_layers import mark_only_lora_and_head_trainable
 from .mamba_model import MambaBlock
 from .transformer import AttentionBlock, FeedForwardBlock
 
 
-class HybridMMMLPAMLP(nn.Module):
+class HSTA(nn.Module):
+    """HSTA with configurable attention placement for controlled ablations.
+
+    The canonical layout is Mamba -> Mamba -> Transition FFN -> Attention ->
+    Refinement FFN. Ablation configs change only the order or replace the
+    attention block with another FFN.
+    """
     def __init__(
         self,
         input_dim: int,
@@ -21,11 +26,8 @@ class HybridMMMLPAMLP(nn.Module):
         expand: int = 2,
         max_len: int = 256,
         pooling: str = "mean",
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
-        freeze_backbone: bool = False,
         block_repeats: int = 1,
+        attention_backend: str = "manual",
     ):
         super().__init__()
         if block_repeats < 1:
@@ -48,9 +50,7 @@ class HybridMMMLPAMLP(nn.Module):
                     d_state=d_state,
                     d_conv=d_conv,
                     expand=expand,
-                    lora=lora,
-                    r=r,
-                    alpha=alpha,
+                    attention_backend=attention_backend,
                 )
                 for name in self.layout
             ]
@@ -58,8 +58,6 @@ class HybridMMMLPAMLP(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, num_classes)
         nn.init.normal_(self.pos, std=0.02)
-        if freeze_backbone:
-            mark_only_lora_and_head_trainable(self)
 
     @staticmethod
     def _make_block(name: str, **kwargs) -> nn.Module:
@@ -71,29 +69,21 @@ class HybridMMMLPAMLP(nn.Module):
                 d_conv=kwargs["d_conv"],
                 expand=kwargs["expand"],
                 dropout=kwargs["dropout"],
-                lora=kwargs["lora"],
-                r=kwargs["r"],
-                alpha=kwargs["alpha"],
             )
         if name in {"attention", "attn"}:
             return AttentionBlock(
                 kwargs["dim"],
                 heads=kwargs["heads"],
                 dropout=kwargs["dropout"],
-                lora=kwargs["lora"],
-                r=kwargs["r"],
-                alpha=kwargs["alpha"],
+                attention_backend=kwargs["attention_backend"],
             )
         if name in {"mlp", "ffn"}:
             return FeedForwardBlock(
                 kwargs["dim"],
                 mlp_ratio=kwargs["mlp_ratio"],
                 dropout=kwargs["dropout"],
-                lora=kwargs["lora"],
-                r=kwargs["r"],
-                alpha=kwargs["alpha"],
             )
-        raise ValueError(f"Unknown hybrid block: {name}")
+        raise ValueError(f"Unknown HSTA block: {name}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, seq_len, _ = x.shape

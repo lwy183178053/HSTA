@@ -35,35 +35,21 @@ experiments:
     model: gru
     model_cfg:
       pooling: last
+  - exp_name: gru_5layer_tls60_s_seed2025
+    model: gru
+    seed: 2025
+    model_cfg:
+      pooling: last
+  - exp_name: gru_5layer_tls60_s_seed3407
+    model: gru
+    seed: 3407
+    model_cfg:
+      pooling: last
   - exp_name: transformer_5layer_tls60_s_seed42
     model: transformer
-  - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-  - exp_name: hybrid_mm_mlp_a_mlp_2block_tls60_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 2
-  - exp_name: hybrid_mm_mlp_a_mlp_4block_tls60_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 4
   - exp_name: transformer_5layer_tls60_s_seed2025
     model: transformer
     seed: 2025
-  - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed2025
-    model: hybrid
-    seed: 2025
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
   - exp_name: transformer_5layer_tls60_s_seed3407
     model: transformer
     seed: 3407
-  - exp_name: hybrid_mm_mlp_a_mlp_tls60_s_seed3407
-    model: hybrid
-    seed: 3407
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]

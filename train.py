@@ -28,7 +28,7 @@ def _grad_scaler(enabled: bool):
         return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
-def eval_model(model, loader, device):
+def eval_model(model, loader, device, amp: bool = False):
     model.eval()
     criterion = nn.CrossEntropyLoss()
     losses, y_true, y_pred = [], [], []
@@ -36,8 +36,10 @@ def eval_model(model, loader, device):
         for x, y in loader:
             x = x.to(device)
             y = y.to(device)
-            logits = model(x)
-            losses.append(float(criterion(logits, y).item()))
+            with _autocast(bool(amp and str(device).startswith("cuda"))):
+                logits = model(x)
+                loss = criterion(logits, y)
+            losses.append(float(loss.item()))
             y_true.extend(y.detach().cpu().numpy())
             y_pred.extend(logits.argmax(dim=1).detach().cpu().numpy())
     accuracy = accuracy_score(y_true, y_pred)
@@ -68,6 +70,27 @@ def _mean_or_nan(values):
     return float(np.mean(finite))
 
 
+def _attention_runtime_metadata(model, cfg: dict, device: str, use_amp: bool) -> dict:
+    attention_modules = [
+        module for module in model.modules() if module.__class__.__name__ == "MultiHeadSelfAttention"
+    ]
+    requested = sorted({str(getattr(module, "attention_backend", "manual")) for module in attention_modules})
+    actual = sorted({str(getattr(module, "actual_attention_backend", "uninitialized")) for module in attention_modules})
+    model_cfg = cfg.get("model_cfg", {}) or {}
+    return {
+        "requested_backend": str(model_cfg.get("attention_backend", "manual")),
+        "module_requested_backends": requested,
+        "actual_backends": actual,
+        "flash_attention_enforced": any(
+            bool(getattr(module, "flash_attention_enforced", False)) for module in attention_modules
+        ),
+        "amp_enabled": bool(use_amp),
+        "amp_dtype": "float16" if use_amp else "float32",
+        "device": str(device),
+        "cuda_device": torch.cuda.get_device_name(0) if str(device).startswith("cuda") else "",
+    }
+
+
 def _load_state_dict(path: Path, device):
     checkpoint = torch.load(path, map_location=device)
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
@@ -89,72 +112,8 @@ def _load_training_checkpoint(path: Path, model, optimizer, scaler, scheduler, d
     return checkpoint
 
 
-def require_pretrained_for_lora(cfg: dict) -> None:
-    model_name = str(cfg.get("model", "")).lower()
-    model_cfg = cfg.get("model_cfg", {}) or {}
-    is_lora = model_name.endswith("_lora") or bool(model_cfg.get("lora", False))
-    if is_lora and not cfg.get("pretrained_path"):
-        raise ValueError(
-            "LoRA fine-tuning requires pretrained_path. "
-            "Train the full hybrid main model first, then point pretrained_path to its best.pt."
-        )
-
-
-def load_pretrained_weights_if_needed(model, cfg: dict, device):
-    pretrained_path = cfg.get("pretrained_path")
-    if not pretrained_path:
-        return {"loaded": False}
-
-    pretrained_path = Path(pretrained_path)
-    if not pretrained_path.exists():
-        raise FileNotFoundError(
-            f"pretrained_path not found: {pretrained_path}. "
-            "Train the referenced base model first, or update pretrained_path in the config."
-        )
-
-    source_state = _load_state_dict(pretrained_path, device)
-    target_state = model.state_dict()
-    reset_head = bool(cfg.get("reset_head", False))
-    loaded = {}
-    skipped = []
-
-    for key, value in source_state.items():
-        candidates = [key]
-        if key.endswith(".weight") or key.endswith(".bias"):
-            stem, suffix = key.rsplit(".", 1)
-            candidates.append(f"{stem}.linear.{suffix}")
-
-        matched = False
-        for candidate in candidates:
-            if reset_head and candidate.startswith("head."):
-                continue
-            if candidate in target_state and tuple(target_state[candidate].shape) == tuple(value.shape):
-                loaded[candidate] = value
-                matched = True
-                break
-        if not matched:
-            skipped.append(key)
-
-    missing, unexpected = model.load_state_dict(loaded, strict=False)
-    info = {
-        "loaded": True,
-        "path": str(pretrained_path),
-        "loaded_keys": len(loaded),
-        "skipped_keys": len(skipped),
-        "missing_keys": list(missing),
-        "unexpected_keys": list(unexpected),
-        "reset_head": reset_head,
-    }
-    print(
-        f"[pretrained] loaded {info['loaded_keys']} keys from {pretrained_path}, "
-        f"skipped {info['skipped_keys']}, reset_head={reset_head}"
-    )
-    return info
-
-
 def train_one(cfg: dict):
     seed_everything(int(cfg.get("seed", 42)))
-    require_pretrained_for_lora(cfg)
     output_dir = Path(cfg.get("output_dir", "results")) / cfg["exp_name"]
     ensure_dir(output_dir)
 
@@ -193,16 +152,10 @@ def train_one(cfg: dict):
         and not latest_path.exists()
         and not summary_path.exists()
     )
-    if resume_candidate or resume_best_only_candidate:
-        checkpoint_path = latest_path if resume_candidate else best_path
-        pretrained_info = {"loaded": False, "skipped_for_resume": True, "checkpoint": str(checkpoint_path)}
-    else:
-        pretrained_info = load_pretrained_weights_if_needed(model, cfg, device)
-
     total_params, trainable_params = count_parameters(model)
     trainable = [param for param in model.parameters() if param.requires_grad]
     if not trainable:
-        raise ValueError("No trainable parameters. Check LoRA freeze settings.")
+        raise ValueError("No trainable parameters.")
 
     optimizer = torch.optim.AdamW(
         trainable,
@@ -255,7 +208,6 @@ def train_one(cfg: dict):
         stopped_epoch = int(checkpoint.get("stopped_epoch", stopped_epoch))
         stop_reason = str(checkpoint.get("stop_reason", stop_reason))
         previous_seconds = float(checkpoint.get("elapsed_seconds", 0.0))
-        pretrained_info = checkpoint.get("pretrained", pretrained_info)
         if extend_training and bool(cfg.get("reset_patience_on_extend", True)):
             bad_epochs = 0
             stopped_epoch = 0
@@ -286,6 +238,7 @@ def train_one(cfg: dict):
             print(f"[resume] {history_path} has no finite {early_metric}; restarting {cfg['exp_name']}")
 
     def save_latest(epoch: int):
+        attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
         torch.save(
             {
                 "state_dict": model.state_dict(),
@@ -304,9 +257,9 @@ def train_one(cfg: dict):
                 "bad_epochs": int(bad_epochs),
                 "stopped_epoch": int(stopped_epoch),
                 "stop_reason": stop_reason,
-                "pretrained": pretrained_info,
                 "scheduler": scheduler_info,
                 "elapsed_seconds": float(previous_seconds + time.time() - start),
+                "attention_runtime": attention_runtime,
             },
             latest_path,
         )
@@ -357,7 +310,7 @@ def train_one(cfg: dict):
             save_latest(epoch)
             break
 
-        val_metrics, _, _ = eval_model(model, loaders["val"], device)
+        val_metrics, _, _ = eval_model(model, loaders["val"], device, amp=use_amp)
         row = {
             "epoch": epoch,
             "lr": lr_before,
@@ -383,6 +336,7 @@ def train_one(cfg: dict):
             best = metric_value
             best_epoch = epoch
             bad_epochs = 0
+            attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -391,6 +345,7 @@ def train_one(cfg: dict):
                     "num_classes": loaders["num_classes"],
                     "classes": loaders["classes"],
                     "feature_cols": loaders["feature_cols"],
+                    "attention_runtime": attention_runtime,
                 },
                 best_path,
             )
@@ -417,12 +372,13 @@ def train_one(cfg: dict):
     if not best_path.exists():
         raise RuntimeError(f"No valid checkpoint was saved for {cfg['exp_name']}. Check history.csv for non-finite losses.")
     model.load_state_dict(_load_state_dict(best_path, device))
-    test_metrics, y_true, y_pred = eval_model(model, loaders["test"], device)
+    test_metrics, y_true, y_pred = eval_model(model, loaders["test"], device, amp=use_amp)
     report = classification_report(y_true, y_pred, target_names=loaders["classes"], zero_division=0, output_dict=True)
     model_cfg = cfg.get("model_cfg", {}) or {}
     base_layout = model_cfg.get("layout", [])
     block_repeats = int(model_cfg.get("block_repeats", 1))
     expanded_layout = base_layout * block_repeats if base_layout else []
+    attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
     result = {
         "exp_name": cfg["exp_name"],
         "model": cfg["model"],
@@ -441,6 +397,11 @@ def train_one(cfg: dict):
         "stop_reason": stop_reason,
         "best_val_metric": float(best),
         "early_stop_metric": early_metric,
+        "attention_backend_requested": attention_runtime["requested_backend"],
+        "attention_backend_actual": "|".join(attention_runtime["actual_backends"]),
+        "flash_attention_enforced": attention_runtime["flash_attention_enforced"],
+        "amp_dtype": attention_runtime["amp_dtype"],
+        "cuda_device": attention_runtime["cuda_device"],
         "seconds": float(previous_seconds + time.time() - start),
         **{f"test_{key}": value for key, value in test_metrics.items()},
     }
@@ -453,8 +414,8 @@ def train_one(cfg: dict):
             "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
             "classification_report": report,
             "config": cfg,
-            "pretrained": pretrained_info,
             "scheduler": scheduler_info,
+            "attention_runtime": attention_runtime,
         },
         output_dir / "metrics.json",
     )

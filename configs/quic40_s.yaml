@@ -31,16 +31,18 @@ base:
     max_len: 256
 
 experiments:
-  - exp_name: mlp_5layer_quic40_s
-    model: mlp
-  - exp_name: cnn_5layer_quic40_s
-    model: cnn
-  - exp_name: lstm_5layer_quic40_s
-    model: lstm
-    model_cfg:
-      pooling: last
   - exp_name: gru_5layer_quic40_s
     model: gru
+    model_cfg:
+      pooling: last
+  - exp_name: gru_5layer_quic40_s_seed2025
+    model: gru
+    seed: 2025
+    model_cfg:
+      pooling: last
+  - exp_name: gru_5layer_quic40_s_seed3407
+    model: gru
+    seed: 3407
     model_cfg:
       pooling: last
   - exp_name: transformer_5layer_quic40_s_seed42
@@ -51,27 +53,3 @@ experiments:
   - exp_name: transformer_5layer_quic40_s_seed3407
     model: transformer
     seed: 3407
-  - exp_name: hybrid_mm_mlp_a_mlp_quic40_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-  - exp_name: hybrid_mm_mlp_a_mlp_2block_quic40_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 2
-  - exp_name: hybrid_mm_mlp_a_mlp_4block_quic40_s_seed42
-    model: hybrid
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-      block_repeats: 4
-  - exp_name: hybrid_mm_mlp_a_mlp_quic40_s_seed2025
-    model: hybrid
-    seed: 2025
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]
-  - exp_name: hybrid_mm_mlp_a_mlp_quic40_s_seed3407
-    model: hybrid
-    seed: 3407
-    model_cfg:
-      layout: [mamba, mamba, mlp, attention, mlp]

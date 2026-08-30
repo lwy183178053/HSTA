@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 import time
@@ -24,11 +25,23 @@ DEFAULT_CONFIGS = [
     "configs/tls60_s.yaml",
     "configs/quic60_s.yaml",
     "configs/sota_adapted.yaml",
+    "configs/recent_journal_baselines.yaml",
+    "configs/hsta_flash.yaml",
 ]
 
 # Standalone Mamba baseline is intentionally excluded; NetMamba-adapted covers
 # the Mamba-only comparison in the final experiment set.
-CORE_MODELS = {"transformer", "hybrid", "30pktTCNET-adapted", "NetMamba-adapted"}
+CORE_MODELS = {
+    "gru",
+    "transformer",
+    "hybrid",
+    "hsta",
+    "30pktTCNET-adapted",
+    "NetMamba-adapted",
+    "srvit",
+    "trafficaudio",
+    "bpf_gnn",
+}
 TASK_NAMES = ("tls40_s", "quic40_s", "tls60_s", "quic60_s")
 
 REPEATED_METRICS = [
@@ -88,7 +101,7 @@ class FlopCounter:
             seq_len, batch = int(x.shape[0]), int(x.shape[1])
         hidden = int(module.hidden_size)
         directions = 2 if module.bidirectional else 1
-        gates = 4 if isinstance(module, nn.LSTM) else 3
+        gates = 3
         macs = 0
         for layer_idx in range(int(module.num_layers)):
             layer_input = int(module.input_size) if layer_idx == 0 else hidden * directions
@@ -116,18 +129,38 @@ class FlopCounter:
         # Rough state update + output projection work inside selective scan.
         self._add("mamba_selective_scan_estimate", 6 * batch * seq_len * d_inner * d_state)
 
+    def _mfcc_hook(self, module: nn.Module, inputs, output) -> None:
+        x = inputs[0]
+        batch = int(x.shape[0])
+        frames = int(output.shape[-1])
+        bins = int(module.n_fft // 2 + 1)
+        fft = 5 * batch * frames * module.n_fft * max(1.0, math.log2(module.n_fft))
+        power = 3 * batch * frames * bins
+        mel = 2 * batch * frames * int(module.n_mels) * bins
+        dct = 2 * batch * frames * int(module.n_mfcc) * int(module.n_mels)
+        self._add("mfcc_stft_mel_dct", fft + power + mel + dct)
+
+    def _graph_conv_hook(self, module: nn.Module, inputs, output) -> None:
+        x, adjacency = inputs
+        batch, nodes, dim = (int(x.shape[0]), int(x.shape[1]), int(x.shape[2]))
+        self._add("graph_message_passing", 2 * batch * nodes * nodes * dim)
+
     def register(self, model: nn.Module) -> None:
         for module in model.modules():
             if isinstance(module, nn.Linear):
                 self.handles.append(module.register_forward_hook(self._linear_hook))
             elif isinstance(module, nn.Conv1d):
                 self.handles.append(module.register_forward_hook(self._conv1d_hook))
-            elif isinstance(module, (nn.LSTM, nn.GRU)):
+            elif isinstance(module, nn.GRU):
                 self.handles.append(module.register_forward_hook(self._rnn_hook))
-            elif module.__class__.__name__ == "MultiHeadSelfAttention":
+            elif module.__class__.__name__ in {"MultiHeadSelfAttention", "RelativePositionSelfAttention"}:
                 self.handles.append(module.register_forward_hook(self._attention_hook))
             elif module.__class__.__name__ == "MambaBlock":
                 self.handles.append(module.register_forward_hook(self._mamba_block_hook))
+            elif module.__class__.__name__ == "PacketMFCC":
+                self.handles.append(module.register_forward_hook(self._mfcc_hook))
+            elif module.__class__.__name__ == "DenseGraphConv":
+                self.handles.append(module.register_forward_hook(self._graph_conv_hook))
 
     def clear(self) -> None:
         self.breakdown.clear()
@@ -179,7 +212,9 @@ def load_checkpoint(path: Path, device: str):
         return torch.load(path, map_location=device)
 
 
-def load_model_from_checkpoint(item: dict, device: str) -> tuple[nn.Module, dict]:
+def load_model_from_checkpoint(
+    item: dict, device: str
+) -> tuple[nn.Module, dict]:
     checkpoint_path = Path(item["checkpoint"])
     checkpoint = load_checkpoint(checkpoint_path, device)
     checkpoint_cfg = checkpoint.get("config", item["cfg"]) if isinstance(checkpoint, dict) else item["cfg"]
@@ -191,12 +226,13 @@ def load_model_from_checkpoint(item: dict, device: str) -> tuple[nn.Module, dict
     if num_classes <= 0:
         raise ValueError(f"Cannot infer num_classes from {checkpoint_path}")
     seq_len = int(checkpoint_cfg.get("seq_len", 30))
+    model_cfg = dict(checkpoint_cfg.get("model_cfg", {}) or {})
     model = build_model(
         checkpoint_cfg["model"],
         input_dim=input_dim,
         num_classes=num_classes,
         seq_len=seq_len,
-        cfg=checkpoint_cfg.get("model_cfg", {}),
+        cfg=model_cfg,
     ).to(device)
     state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
     model.load_state_dict(state_dict, strict=True)
@@ -206,16 +242,20 @@ def load_model_from_checkpoint(item: dict, device: str) -> tuple[nn.Module, dict
         "input_dim": input_dim,
         "num_classes": num_classes,
         "seq_len": seq_len,
-        "model_cfg": checkpoint_cfg.get("model_cfg", {}),
+        "model_cfg": model_cfg,
+        "checkpoint_attention_runtime": checkpoint.get("attention_runtime", {}) if isinstance(checkpoint, dict) else {},
     }
     return model, meta
 
 
-def estimate_flops(model: nn.Module, sample: torch.Tensor, estimate_mamba_scan: bool) -> tuple[float, dict[str, float]]:
+def estimate_flops(
+    model: nn.Module, sample: torch.Tensor, estimate_mamba_scan: bool, amp: bool = False
+) -> tuple[float, dict[str, float]]:
     counter = FlopCounter(estimate_mamba_scan=estimate_mamba_scan)
     counter.register(model)
     counter.clear()
-    with torch.inference_mode():
+    use_amp = bool(amp and sample.is_cuda)
+    with torch.inference_mode(), torch.amp.autocast(device_type=sample.device.type, enabled=use_amp):
         _ = model(sample)
     total = counter.total_flops
     breakdown = {key: float(value) for key, value in sorted(counter.breakdown.items())}
@@ -355,6 +395,10 @@ def _seed_from_exp_name(exp_name: str) -> str:
 
 
 def _variant_from_exp_name(exp_name: str) -> str:
+    if exp_name.endswith("_manual_backend"):
+        return "manual_backend"
+    if exp_name.endswith("_flash_backend"):
+        return "flash_backend"
     if "2block" in exp_name:
         return "2block"
     if "4block" in exp_name:
@@ -480,6 +524,7 @@ def run(args) -> None:
         if not checkpoint_path.exists():
             skipped.append({"exp_name": item["exp_name"], "reason": f"missing {args.checkpoint_name}"})
             continue
+        output_exp_name = item["exp_name"]
         try:
             model, meta = load_model_from_checkpoint(item, device)
         except Exception as exc:
@@ -492,6 +537,7 @@ def run(args) -> None:
             model,
             sample_one,
             estimate_mamba_scan=not args.no_mamba_scan_estimate,
+            amp=args.amp,
         )
         macs_per_sample = flops_per_sample / 2.0
         model_cfg = meta.get("model_cfg", {}) or {}
@@ -501,12 +547,21 @@ def run(args) -> None:
         task = _task_from_exp_name(item["exp_name"]) or _task_from_config(item["config_path"])
         dataset = _dataset_from_task(task)
         seed = _seed_from_exp_name(item["exp_name"])
-        variant = _variant_from_exp_name(item["exp_name"])
+        variant = _variant_from_exp_name(output_exp_name)
+        attention_modules = [
+            module for module in model.modules() if module.__class__.__name__ == "MultiHeadSelfAttention"
+        ]
+        requested_backends = sorted(
+            {str(getattr(module, "attention_backend", "manual")) for module in attention_modules}
+        )
+        actual_backends = sorted(
+            {str(getattr(module, "actual_attention_backend", "uninitialized")) for module in attention_modules}
+        )
 
         for batch_size in args.batch_sizes:
             sample = torch.randn(batch_size, meta["seq_len"], meta["input_dim"], device=device)
             base_row = {
-                "exp_name": item["exp_name"],
+                "exp_name": output_exp_name,
                 "task": task,
                 "dataset": dataset,
                 "seed": seed,
@@ -517,6 +572,12 @@ def run(args) -> None:
                 "batch_size": int(batch_size),
                 "device": device,
                 "amp": bool(args.amp and device.startswith("cuda")),
+                "attention_backend_requested": "|".join(requested_backends),
+                "attention_backend_actual": "|".join(actual_backends),
+                "flash_attention_enforced": any(
+                    bool(getattr(module, "flash_attention_enforced", False))
+                    for module in attention_modules
+                ),
                 "seq_len": meta["seq_len"],
                 "input_dim": meta["input_dim"],
                 "num_classes": meta["num_classes"],
@@ -556,7 +617,7 @@ def run(args) -> None:
 
         details.append(
             {
-                "exp_name": item["exp_name"],
+                "exp_name": output_exp_name,
                 "checkpoint": str(checkpoint_path),
                 "meta": meta,
                 "params": {"total": total_params, "trainable": trainable_params},
@@ -588,6 +649,9 @@ def run(args) -> None:
             "block_repeats",
             "hybrid_layers",
             "batch_size",
+            "attention_backend_requested",
+            "attention_backend_actual",
+            "flash_attention_enforced",
             "repeats",
             "total_params",
             "parameters_m",

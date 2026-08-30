@@ -1,15 +1,12 @@
-from .cnn import CNN1DClassifier
 from .adapted_sota import NetMambaAdapted, PktTCNetAdapted
-from .hybrid_mm_mlp_a_mlp import HybridMMMLPAMLP
-from .lstm import RNNClassifier
-from .mamba_model import MambaClassifier
-from .mlp import MLPClassifier
+from .gru import GRUClassifier
+from .hsta import HSTA
+from .recent_journal_baselines import BPFGNN, SRViT, TrafficAudio
 from .transformer import TrafficTransformer
 
 
 TCNET_ALIASES = {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}
 NETMAMBA_ALIASES = {"netmamba_adapted", "net_mamba_adapted"}
-HYBRID_ALIASES = {"hybrid", "hybrid_lora"}
 
 
 def _normalize_model_name(name: str) -> str:
@@ -33,33 +30,13 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
     name = _normalize_model_name(name)
 
     common_depth = _cfg_int(cfg, "depth", 5)
-    if name == "mlp":
-        return MLPClassifier(
-            input_dim,
-            num_classes,
-            seq_len=seq_len,
-            hidden=_cfg_int(cfg, "hidden", 128),
-            depth=common_depth,
-            dropout=_cfg_float(cfg, "dropout", 0.2),
-        )
-    if name == "cnn":
-        return CNN1DClassifier(
-            input_dim,
-            num_classes,
-            hidden=_cfg_int(cfg, "hidden", 128),
-            depth=common_depth,
-            kernel_size=_cfg_int(cfg, "kernel_size", 3),
-            dropout=_cfg_float(cfg, "dropout", 0.15),
-        )
-    if name in {"lstm", "gru"}:
-        return RNNClassifier(
+    if name == "gru":
+        return GRUClassifier(
             input_dim,
             num_classes,
             hidden=_cfg_int(cfg, "hidden", 128),
             depth=common_depth,
             dropout=_cfg_float(cfg, "dropout", 0.15),
-            rnn_type=name,
-            bidirectional=bool(cfg.get("bidirectional", False)),
             pooling=str(cfg.get("pooling", "last")),
         )
     if name == "transformer":
@@ -73,18 +50,39 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             dropout=_cfg_float(cfg, "dropout", 0.1),
             max_len=_max_len(cfg, seq_len),
         )
-    if name == "mamba":
-        return MambaClassifier(
+    if name == "srvit":
+        kernels = tuple(int(value) for value in cfg.get("patch_kernel_sizes", (3, 5, 7)))
+        return SRViT(
             input_dim,
             num_classes,
             dim=_cfg_int(cfg, "dim", 128),
-            depth=common_depth,
-            dropout=_cfg_float(cfg, "dropout", 0.1),
-            d_state=_cfg_int(cfg, "d_state", 16),
-            d_conv=_cfg_int(cfg, "d_conv", 4),
-            expand=_cfg_int(cfg, "expand", 2),
-            max_len=_max_len(cfg, seq_len),
-            pooling=str(cfg.get("pooling", "mean")),
+            depth=_cfg_int(cfg, "depth", 4),
+            heads=_cfg_int(cfg, "heads", 4),
+            mlp_ratio=_cfg_int(cfg, "mlp_ratio", 4),
+            dropout=_cfg_float(cfg, "dropout", 0.15),
+            max_len=_cfg_int(cfg, "max_len", seq_len),
+            patch_kernel_sizes=kernels,
+        )
+    if name == "trafficaudio":
+        return TrafficAudio(
+            input_dim,
+            num_classes,
+            dim=_cfg_int(cfg, "dim", 128),
+            dropout=_cfg_float(cfg, "dropout", 0.15),
+            n_fft=_cfg_int(cfg, "n_fft", 16),
+            win_length=_cfg_int(cfg, "win_length", 16),
+            hop_length=_cfg_int(cfg, "hop_length", 4),
+            n_mels=_cfg_int(cfg, "n_mels", 16),
+            n_mfcc=_cfg_int(cfg, "n_mfcc", 8),
+        )
+    if name in {"bpf_gnn", "bpfgnn"}:
+        return BPFGNN(
+            input_dim,
+            num_classes,
+            dim=_cfg_int(cfg, "dim", 128),
+            dropout=_cfg_float(cfg, "dropout", 0.15),
+            top_k=_cfg_int(cfg, "top_k", 4),
+            num_subflows=_cfg_int(cfg, "num_subflows", 5),
         )
     if name in TCNET_ALIASES:
         return PktTCNetAdapted(
@@ -109,9 +107,8 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             max_len=_max_len(cfg, seq_len),
             pooling=str(cfg.get("pooling", "mean")),
         )
-    if name in HYBRID_ALIASES:
-        lora = bool(cfg.get("lora", name == "hybrid_lora"))
-        return HybridMMMLPAMLP(
+    if name in {"hsta", "hybrid"}:
+        return HSTA(
             input_dim,
             num_classes,
             dim=_cfg_int(cfg, "dim", 128),
@@ -124,10 +121,7 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             expand=_cfg_int(cfg, "expand", 2),
             max_len=_max_len(cfg, seq_len),
             pooling=str(cfg.get("pooling", "mean")),
-            lora=lora,
-            r=_cfg_int(cfg, "r", 8),
-            alpha=_cfg_int(cfg, "alpha", 16),
-            freeze_backbone=bool(cfg.get("freeze_backbone", lora)),
             block_repeats=_cfg_int(cfg, "block_repeats", 1),
+            attention_backend=str(cfg.get("attention_backend", "manual")),
         )
     raise ValueError(f"Unknown model: {name}")

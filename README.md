@@ -1,57 +1,83 @@
-# MM-MLP-A-MLP
+# HSTA Encrypted Traffic Classification
 
-这是一个基于 PyTorch 的加密流量分类实验项目，用于比较 5 层常规基线模型、`Mamba -> Mamba -> MLP -> Attention -> MLP` 混合模型、注意力位置消融、LoRA 迁移、zero-shot 迁移和 full fine-tune 迁移。
+基于 PyTorch 的加密 QUIC/TLS 流量分类实验项目。项目内容与论文修改版 10 对齐，统一使用每条 flow 前 30 个包的三维侧信道特征：`size`、`direction`、`delta_time`。
 
-Mamba 模块依赖官方 `mamba-ssm`，建议在 WSL/Linux CUDA 环境运行。普通数据检查、CSV 预处理和非 Mamba 脚本也可以在 Windows 的 Anaconda 环境中运行。
+## 论文范围
 
-项目还包含两个 SOTA/先进结构对比模型：`30pktTCNET-adapted` 和 `NetMamba-adapted`。它们都是 adapted to our packet-level side-channel input setting，使用相同的 `[B, 30, 3]` packet size, direction, and packet inter-arrival time features，并不是原论文完整输入管线的复现。
+最终主结果包含 8 个模型，在 QUIC-40、QUIC-60、TLS-40、TLS-60 四个闭集任务上使用随机种子 `42`、`2025`、`3407`：
 
-## Python 环境
+| 类别 | 模型 |
+| --- | --- |
+| 主模型与基础对比 | GRU、Transformer、HSTA |
+| 适配 SOTA | `30pktTCNET-adapted`、`NetMamba-adapted` |
+| 近期论文结构 | SRViT、TrafficAudio、BPF-GNN |
 
-快速检查当前 Windows/WSL/Python 环境：
+HSTA 的固定主结构是：
+
+```text
+[B, 30, 3]
+  -> Input Projection + Positional Encoding
+  -> Mamba Block x2
+  -> Transition FFN (128 -> 512 -> 128)
+  -> 4-head FlashAttention
+  -> Refinement FFN (128 -> 512 -> 128)
+  -> Mean Pooling
+  -> Linear Classifier
+```
+
+注意力位置消融包含 `No Attention`、`Front Attention`、`Middle Attention` 和完整 HSTA。FlashAttention 是 PyTorch SDPA 的严格 CUDA FP16/BF16 后端，用于实现效率，不改变论文中的注意力定义。
+
+## 项目结构
+
+```text
+data/                         数据读取、划分、DataZoo 预处理
+models/
+  hsta.py                     HSTA 及注意力位置消融结构
+  mamba_model.py              Mamba Block 与 NetMamba-adapted 主干
+  gru.py                      GRU 基线
+  transformer.py              Transformer 基线与注意力/FFN 模块
+  adapted_sota.py             30pktTCNET-adapted、NetMamba-adapted
+  recent_journal_baselines.py SRViT、TrafficAudio、BPF-GNN
+configs/                      最终论文实验配置
+scripts/
+  run_wsl_experiments.sh      WSL/CUDA 批量入口
+  summarize_paper_main_results.py 主表汇总
+tests/                        模型、配置、效率和主表测试
+docs/                         近期基线与 FlashAttention 说明
+paper/                        论文归档目录，仅保存，不参与代码运行
+train.py                      单实验训练与断点续训
+run_experiments.py             配置文件批量训练入口
+evaluate.py                    checkpoint 独立评估
+benchmark_efficiency.py       FLOPs、延迟、吞吐和显存测试
+```
+
+## 环境
+
+Windows 检查、预处理和 CPU 测试使用项目 Anaconda 解释器：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
-```
-
-当前 PyCharm 项目使用的解释器是 Anaconda 的 `mybase` 环境：
-
-```powershell
-D:\ProgramData\anaconda3\envs\mybase\python.exe
-```
-
-如果 PowerShell 没有初始化 conda，可以直接用解释器绝对路径：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --resume
-```
-
-如果已经打开 Anaconda Prompt 或 conda 已在 PATH 中：
-
-```powershell
-conda activate mybase
-python run_experiments.py --config configs\tls40_s.yaml --resume
-```
-
-WSL 批处理脚本默认使用：
-
-```bash
-source /opt/traffic-mamba-venv/bin/activate
-```
-
-WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docker-desktop` 作为项目 shell；`traffic-ubuntu-22.04` 可以看到项目路径，但没有 `/opt/traffic-mamba-venv`。
-
-## 安装依赖
-
-```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m pip install -r requirements.txt
 ```
 
-`mamba-ssm` 在 Windows 上通常不方便安装。需要跑 `hybrid`、`hybrid_lora`、`NetMamba-adapted` 时，优先使用 WSL/Linux CUDA 环境。
+Mamba/CUDA 训练使用 WSL `Ubuntu-22.04` 和 `/opt/traffic-mamba-venv`：
 
-## 准备 DataZoo S CSV
+```powershell
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && source /opt/traffic-mamba-venv/bin/activate && python -c 'import torch, mamba_ssm; print(torch.__version__, torch.cuda.is_available())'"
+```
 
-默认导出 TLS/QUIC 的 top-40 和 top-60 类，每条 flow 取前 30 个包，每包特征为 `size`、`direction`、`delta_time`，也就是 packet size, direction, and packet inter-arrival time features。
+## 数据准备
+
+项目默认读取以下四个 CSV：
+
+```text
+data/processed/datazoo_tls40_s_seq30.csv
+data/processed/datazoo_quic40_s_seq30.csv
+data/processed/datazoo_tls60_s_seq30.csv
+data/processed/datazoo_quic60_s_seq30.csv
+```
+
+从 DataZoo 生成数据：
 
 ```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --project-root . --topk 40
@@ -60,338 +86,74 @@ WSL 中用于 Mamba/CUDA 训练的发行版是 `Ubuntu-22.04`。不要用 `docke
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --project-root . --topk 60
 ```
 
-默认输出：
+预处理只负责生成统一的 `[flow, packet, feature]` 输入。训练和测试使用按 flow 且按时间隔离的划分，避免同一 flow 的 packet 泄漏到不同 split。
 
-- `data/processed/datazoo_tls40_s_seq30.csv`
-- `data/processed/datazoo_quic40_s_seq30.csv`
-- `data/processed/datazoo_tls60_s_seq30.csv`
-- `data/processed/datazoo_quic60_s_seq30.csv`
+## 实验配置
 
-预处理默认限制：
-
-- 初始化 train: `1000000`
-- 初始化 validation known: `200000`
-- 初始化 test known: `200000`
-- 每类导出 train: `10000`
-- 每类导出 validation: `2000`
-- 每类导出 test: `2000`
-- DataZoo batch size: `64`
-- DataZoo workers: `0`
-
-内存紧张时可以降低规模：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --project-root . --topk 40 --init-train-size 200000 --init-val-size 80000 --init-test-size 80000 --datazoo-batch-size 32 --datazoo-test-batch-size 32 --max-train-per-class 5000 --max-val-per-class 1000 --max-test-per-class 1000
-```
-
-常用预处理参数：
-
-- `--dataset tls|quic`：选择 TLS 或 QUIC。
-- `--size XS|S|M|L`：DataZoo 数据集规模。
-- `--seq-len 30`：每条 flow 使用多少个包。
-- `--topk 40`：自动扫描训练集并选出现次数最多的 top-k 类。
-- `--classes ...`：手动指定类别，指定后不按 top-k 选择。
-- `--out-csv path`：自定义输出 CSV。
-
-## 统一实验入口
-
-主入口是：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config <配置文件> --resume
-```
-
-`run_experiments.py` 现在同时支持普通训练、LoRA/full fine-tune 训练和 zero-shot 评估。配置中包含 `source_csv`、`target_csv`、`source_checkpoint` 的实验会自动按 zero-shot 处理。
-
-常用参数：
-
-- `--config configs/tls40_s.yaml`：指定实验配置。
-- `--resume`：默认行为；已完成且有 `summary.csv`、`best.pt` 的训练实验会跳过，未完成实验会从 `latest.pt` 继续。
-- `--no-resume`：关闭续训和跳过逻辑。
-- `--force`：即使已有结果也重新跑。谨慎使用。
-- `--extend`：已经完成的实验也从 `latest.pt` 继续跑到当前配置的 `epochs`。
-- `--only exp_name ...`：只跑指定实验名，可以一次指定多个。
-
-示例：
-
-```powershell
-# 跑完整 TLS40 配置
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --resume
-
-# 只跑一个实验
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --only hybrid_mm_mlp_a_mlp_tls40_s_seed42
-
-# 已提高 epochs 后继续已完成实验
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --resume --extend
-
-# 从头重跑某个实验
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --force --only mlp_5layer_tls40_s
-```
-
-## 配置文件说明
-
-| 配置 | 作用 | 输出目录 |
+| 配置 | 内容 | 输出目录 |
 | --- | --- | --- |
-| `configs/tls40_s.yaml` | TLS top-40，MLP/CNN/LSTM/GRU/Transformer/Hybrid 主实验 | `results/tls40_s` |
-| `configs/quic40_s.yaml` | QUIC top-40，模型集合同 TLS40 | `results/quic40_s` |
-| `configs/tls60_s.yaml` | TLS top-60，GRU/Transformer/Hybrid，以及 Transformer/Hybrid 的多 seed 主实验 | `results/tls60_s` |
-| `configs/quic60_s.yaml` | QUIC top-60，模型集合同 TLS60 | `results/quic60_s` |
-| `configs/ablation_s.yaml` | Hybrid 注意力位置/去注意力消融的 TLS/QUIC、40/60 类三 seed 实验 | `results/ablation_s` |
-| `configs/sota_adapted.yaml` | `30pktTCNET-adapted` 和 `NetMamba-adapted` 的 TLS/QUIC、40/60 类三 seed 对比实验 | `results/sota_adapted` |
-| `configs/transfer_s.yaml` | top-40/top-60 的 LoRA、zero-shot、full fine-tune 迁移合集 | `results/transfer_s` |
-| `configs/base.yaml` | 公共超参数模板，不是批量实验配置 | 无 |
+| `configs/tls40_s.yaml` | TLS-40 的 GRU、Transformer 三 seed | `results/tls40_s` |
+| `configs/quic40_s.yaml` | QUIC-40 的 GRU、Transformer 三 seed | `results/quic40_s` |
+| `configs/tls60_s.yaml` | TLS-60 的 GRU、Transformer 三 seed | `results/tls60_s` |
+| `configs/quic60_s.yaml` | QUIC-60 的 GRU、Transformer 三 seed | `results/quic60_s` |
+| `configs/hsta_flash.yaml` | HSTA 三 seed、四任务 | `results/hsta_flash` |
+| `configs/hsta_no_attention.yaml` | HSTA No Attention 三 seed、四任务 | `results/hsta_no_attention` |
+| `configs/hsta_flash_ablation.yaml` | Front/Middle Attention 消融 | `results/hsta_flash_ablation` |
+| `configs/sota_adapted.yaml` | 两个适配 SOTA、三 seed、四任务 | `results/sota_adapted` |
+| `configs/recent_journal_baselines.yaml` | SRViT、TrafficAudio、BPF-GNN | `results/recent_journal_baselines` |
+| `configs/base.yaml` | 公共超参数模板 | 不直接运行 |
 
-配置可以在 `base` 或单个实验里指定 `feature_cols`，例如 `feature_cols: [size, direction, delta_time]`。不指定时保持默认列 `size`、`direction`、`delta_time`，对应 packet size, direction, and packet inter-arrival time features；如果改成 `pkt_index` 等其他列，属于新的输入口径，已有 checkpoint 和结果需要对应重跑。
+## 训练
 
-## 推荐运行顺序
-
-先跑主模型，再跑迁移。LoRA 和 full fine-tune 都依赖源域 Hybrid 的 `best.pt`。
+单个配置在 Windows 上运行：
 
 ```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls40_s.yaml --resume
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\quic40_s.yaml --resume
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only hybrid_lora_tls_to_quic40_s hybrid_lora_quic_to_tls40_s
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only zero_shot_tls_to_quic40_s zero_shot_quic_to_tls40_s
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only full_ft_tls_to_quic40_s full_ft_quic_to_tls40_s
-
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\tls60_s.yaml --resume
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\quic60_s.yaml --resume
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only hybrid_lora_tls_to_quic60_s hybrid_lora_quic_to_tls60_s
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only zero_shot_tls_to_quic60_s zero_shot_quic_to_tls60_s
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume --only full_ft_tls_to_quic60_s full_ft_quic_to_tls60_s
 ```
 
-一次跑完所有迁移实验：
+常用选项：`--resume` 跳过已完成实验并续训未完成实验；`--no-resume` 关闭断点续训；`--force` 覆盖同名结果；`--extend` 延长训练；`--only NAME` 只运行指定实验。
+
+WSL/CUDA 批量入口：
 
 ```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' run_experiments.py --config configs\transfer_s.yaml --resume
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh main_all"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh sota_all"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh recent_all"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh hsta_flash_all"
 ```
 
-LoRA 迁移说明：
+可用 mode：`tls40`、`quic40`、`tls60`、`quic60`、`main_all`、`recent_all`、`sota_all`、`ablation_all`、`hsta_flash_all`、`efficiency`。
 
-- `hybrid_lora_tls_to_quic*_s`：加载 TLS Hybrid 的 `best.pt`，重置分类头，在 QUIC 上只训练 LoRA 和 head。
-- `hybrid_lora_quic_to_tls*_s`：加载 QUIC Hybrid 的 `best.pt`，重置分类头，在 TLS 上只训练 LoRA 和 head。
-- 随机 backbone 的 LoRA 已禁用；每个 LoRA 实验必须定义 `pretrained_path`。
+## 结果与评估
 
-Zero-shot 迁移说明：
+每个实验目录包含 `best.pt`、`latest.pt`、`history.csv`、`summary.csv` 和 `metrics.json`。各配置根目录的 `all_results.csv` 保存该配置汇总结果。
 
-- 使用源域 checkpoint 的类别空间。
-- 使用源域训练集拟合出的 scaler 标准化目标域测试集。
-- 输出 `full_accuracy`、`covered_accuracy`、`covered_macro_f1` 等指标。
-- `zero_shot_transfer.py` 已删除；zero-shot 逻辑已合并进 `run_experiments.py`。
-
-## WSL 批量运行
-
-WSL 脚本入口：
-
-```bash
-bash scripts/run_wsl_experiments.sh <mode>
-```
-
-从 PowerShell 调用时示例：
+生成论文八模型主表：
 
 ```powershell
-wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh extend_and_transfer"
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' scripts\summarize_paper_main_results.py
 ```
 
-可用 mode：
-
-| mode | 执行内容 |
-| --- | --- |
-| `tls` | TLS40 主实验 |
-| `quic` | QUIC40 主实验 |
-| `tls60` | TLS60 主实验 |
-| `quic60` | QUIC60 主实验 |
-| `ablation40` | TLS40/QUIC40 的消融三 seed 实验 |
-| `ablation60` | TLS60/QUIC60 的消融三 seed 实验 |
-| `ablation_all` | TLS40/QUIC40/TLS60/QUIC60 的消融三 seed 实验 |
-| `seed40` | TLS40/QUIC40 中 Transformer、Hybrid 的 seed2025/seed3407 补充实验 |
-| `seed60` | TLS60/QUIC60 中 Transformer、Hybrid 的 seed2025/seed3407 补充实验 |
-| `stack40` | TLS40/QUIC40 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
-| `stack60` | TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
-| `stack_all` | TLS40/QUIC40/TLS60/QUIC60 的 Hybrid 2 Block 和 4 Block seed42 堆叠实验 |
-| `sota40` | TLS40/QUIC40 的 30pktTCNET-adapted 和 NetMamba-adapted 三 seed 对比实验 |
-| `sota60` | TLS60/QUIC60 的 30pktTCNET-adapted 和 NetMamba-adapted 三 seed 对比实验 |
-| `sota_all` | TLS40/QUIC40/TLS60/QUIC60 的 adapted SOTA 三 seed 对比实验 |
-| `sota_efficiency` | 只对 adapted SOTA 的 `best.pt` 做 FLOPs 和推理时间实验，输出到统一的 `results/efficiency_benchmark` |
-| `efficiency` | 对已有 `best.pt` 做 FLOPs 和推理时间实验，输出 `results/efficiency_benchmark` |
-| `efficiency_quick` | 小迭代快速检查版，输出 `results/efficiency_benchmark_quick` |
-| `transfer40` | top-40 LoRA 迁移 |
-| `transfer60` | top-60 LoRA 迁移 |
-| `zero40` | top-40 zero-shot 迁移 |
-| `zero60` | top-60 zero-shot 迁移 |
-| `fullft40` | top-40 full fine-tune 迁移 |
-| `fullft60` | top-60 full fine-tune 迁移 |
-| `all` | TLS40 -> QUIC40 -> top-40 LoRA |
-| `all60` | TLS60 -> QUIC60 -> top-60 LoRA |
-| `readme_all` | TLS40/QUIC40/LoRA40/TLS60/QUIC60/LoRA60 |
-| `transfer_extra` | zero-shot40 -> fullft40 -> zero-shot60 -> fullft60 |
-| `extend_all` | 扩展 TLS40/QUIC40/LoRA40/TLS60/QUIC60/LoRA60 |
-| `extend_and_transfer` | 扩展已有主实验和 LoRA，再跑 zero-shot/full fine-tune |
-| `quic40_then_all60` | QUIC40 -> LoRA40 -> TLS60 -> QUIC60 -> LoRA60 |
-
-WSL 脚本会写入：
-
-- `logs/wsl_<mode>_latest.log`
-- `logs/wsl_<mode>_status.txt`
-- `logs/wsl_<mode>_windows.pid`
-
-监控当前任务：
+独立评估 checkpoint：
 
 ```powershell
-Get-Content logs\wsl_extend_and_transfer_status.txt
-Get-Content logs\wsl_extend_and_transfer_latest.log -Tail 80 -Wait
-Get-Process | Where-Object { $_.ProcessName -like '*wsl*' -or $_.ProcessName -like '*python*' }
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' evaluate.py --checkpoint results\hsta_flash\hsta_flash_tls40_s_seed42\best.pt --split test
 ```
 
-## FLOPs 与推理时间实验
-
-独立脚本为 `benchmark_efficiency.py`，默认扫描 TLS40、QUIC40、TLS60、QUIC60 和 adapted SOTA 配置中已经存在的所有模型 `best.pt`。缺失 checkpoint 的实验会跳过，结果统一写入 `results/efficiency_benchmark`。
+效率测试只扫描配置中已存在的 `best.pt`，结果写入 `results/efficiency_benchmark`：
 
 ```powershell
-wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh efficiency"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh efficiency"
 ```
 
-只测指定实验：
+效率输出包括参数量、单样本 GFLOPs、MACs、延迟、吞吐和 CUDA 峰值显存。Mamba selective scan 使用解析估计，并在结果中明确标记。
+
+## 论文归档
+
+`paper/` 只保存论文原稿、投稿包和图稿，不作为训练代码输入，也不由项目脚本写入。
+
+测试：
 
 ```powershell
-wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh efficiency --only hybrid_mm_mlp_a_mlp_tls40_s_seed42 transformer_5layer_tls40_s_seed42"
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m pytest -q
 ```
-
-常用参数：
-
-- `--batch-sizes 1 32 512`：分别测单条、常用 batch 和大 batch 推理。
-- `--repeats 5`：独立重复 benchmark 次数，主表默认写 5 次重复的均值。
-- `--warmup 20 --iterations 100`：每次重复内的预热次数和正式计时次数。
-- `--checkpoint-name best.pt|latest.pt`：默认测最佳 checkpoint。
-- `--cpu` 或 `--device cuda:0`：指定 CPU/GPU。
-- `--no-amp`：关闭 CUDA AMP 计时。
-
-核心指标：
-
-- Parameters：`total_params`、`parameters_m`。
-- FLOPs / MACs：`gflops_per_sample`、`gmacs_per_sample`。
-- Inference latency：`latency_ms_mean`、`latency_ms_p95`、`per_sample_latency_ms`。
-- Throughput：`throughput_samples_per_s`。
-- GPU memory：`gpu_memory_peak_allocated_mb`、`gpu_memory_peak_reserved_mb`、`gpu_memory_peak_delta_mb`。
-
-输出文件：
-
-- `results/efficiency_benchmark/benchmark_results.csv`：逐实验、逐 batch 的多次重复均值结果。
-- `results/efficiency_benchmark/benchmark_repeats.csv`：每次重复的原始结果，用于查看波动。
-- `results/efficiency_benchmark/summary.csv`：全模型效率简表。
-- `results/efficiency_benchmark/core_model_efficiency.csv`：核心模型和 adapted SOTA seed42 在四个任务上的对比表。
-- `results/efficiency_benchmark/benchmark_results.json`：包含参数、跳过项和 FLOPs 分项。
-- `results/efficiency_benchmark/README.md`：本次 benchmark 的设置说明。
-
-口径说明：FLOPs 采用 `1 multiply-add = 2 FLOPs`，MACs 按 `FLOPs / 2` 输出。计时只包含模型前向推理，不包含 CSV 读取、标准化、DataLoader 或后处理。Latency、throughput、GPU memory 在 `summary.csv` 中默认是 5 次独立 benchmark 的均值，同时保留跨重复的标准差和 CV。GPU memory 在每个模型、每个 batch size、每次重复进入推理 warmup 前重置 CUDA peak memory stats。`LayerNorm`、`GELU`、`Dropout`、残差加法和 reshape/indexing 未计入 FLOPs；Mamba selective scan 因为核心 CUDA kernel 对 Python hook 不透明，使用解析近似估算。
-
-## 结果文件
-
-每个实验目录包含：
-
-- `best.pt`：验证集指标最好的 checkpoint。
-- `latest.pt`：最近一个 epoch 的可续训 checkpoint。
-- `history.csv`：逐 epoch 训练/验证指标。
-- `summary.csv`：该实验最终测试指标。
-- `metrics.json`：混淆矩阵、classification report、配置和更多元信息。
-
-每个配置输出目录下还有：
-
-- `all_results.csv`：该配置内所有实验的汇总结果。
-
-迁移实验统一放在 `results/transfer_s`，包括 LoRA、zero-shot 和 full fine-tune 的 40/60 类所有实验目录。
-
-adapted SOTA 实验统一放在 `results/sota_adapted`，不再额外套任务子目录；每个实验目录名本身包含任务名：
-
-- `results/sota_adapted/all_results.csv`：四个任务的 SOTA 总汇总，使用 `exp_name` 区分任务。
-- `results/sota_adapted/<exp_name>/`：每个 SOTA 实验自己的 checkpoint、history、summary 和 metrics。
-
-消融实验统一放在 `results/ablation_s`，不再混在四个主任务结果目录里：
-
-- `results/ablation_s/all_results.csv`：四个任务的消融总汇总，使用 `exp_name` 区分任务和 seed。
-- `results/ablation_s/<exp_name>/`：每个消融实验自己的 checkpoint、history、summary 和 metrics。
-
-主模型、消融和 adapted SOTA 的多 seed 命名规则：
-
-- 原始 seed 42 结果统一命名为 `*_seed42`。
-- 新增补充 seed 为 `seed2025` 和 `seed3407`。
-- 主模型涉及 Transformer 和 `Mamba -> Mamba -> MLP -> Attention -> MLP` Hybrid；当前实验集不再保留单独的 Mamba baseline 结果。
-- 消融涉及 `ablation_no_attention`、`ablation_attention_middle` 和 `ablation_attention_front`。
-- adapted SOTA 涉及 `30pktTCNET-adapted` 和 `NetMamba-adapted`。
-
-只跑 60 类多 seed 补充实验：
-
-```powershell
-wsl -d Ubuntu-22.04 bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && bash scripts/run_wsl_experiments.sh seed60"
-```
-
-查看汇总：
-
-```powershell
-Import-Csv results\tls40_s\all_results.csv |
-  Select-Object exp_name,model,test_accuracy,test_macro_f1,trainable_params,seconds |
-  Format-Table -AutoSize
-```
-
-查看当前实验最近几个 epoch：
-
-```powershell
-Import-Csv results\tls40_s\gru_5layer_tls40_s\history.csv |
-  Select-Object -Last 10 |
-  Format-Table epoch,train_loss,val_accuracy,val_macro_f1,best_epoch,bad_epochs,stop_reason -AutoSize
-```
-
-## 单独评估 checkpoint
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' evaluate.py --checkpoint results\tls40_s\hybrid_mm_mlp_a_mlp_tls40_s_seed42\best.pt --split test
-```
-
-写出 JSON：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' evaluate.py --checkpoint results\tls40_s\hybrid_mm_mlp_a_mlp_tls40_s_seed42\best.pt --split test --out results\tls40_s\hybrid_eval.json
-```
-
-## 辅助脚本
-
-预处理会在 `data/processed/*.report.json` 中写入 `class_summary` 和 `class_count_summary`：
-
-- `model_label_id`：训练和预测时模型使用的类别编号。
-- `datazoo_label`：DataZoo 原始服务编号。
-- `traffic_name`：`servicemap.csv` 中对应的真实流量服务名。
-- `flow_count` / `packet_row_count`：每个类型的 flow 数和 CSV 包行数。
-
-只补充已有 CSV 的 report，不重新导出数据：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --enrich-existing-reports --project-root .
-```
-
-只补充某一个数据集：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --enrich-existing-reports --project-root . --report-csv data\processed\datazoo_tls60_s_seq30.csv
-```
-
-打包结果但排除 `.pt` 和 `.csv`：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' zip_without_pt_csv.py --source results --output results\results_without_pt_csv.zip
-```
-
-默认会把 `data/processed/*.report.json` 一起打包进去，里面包含数据集类别数量和标签服务名映射。若不需要这些 report：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' zip_without_pt_csv.py --source results --output results\results_without_pt_csv.zip --no-include-data-reports
-```
-
-## 常见注意事项
-
-- `--resume` 是默认行为，普通训练实验需要同时存在 `summary.csv` 和 `best.pt` 才会被认为已完成。
-- zero-shot 没有训练 checkpoint，完成判断只看 `summary.csv`。
-- `--extend` 适合提高 `epochs` 后继续训练；默认会重置 optimizer 和 patience。
-- `--force` 会重新跑实验并覆盖同名输出，使用前确认不需要保留旧结果。
-- LoRA/full fine-tune 前必须先跑完源域 Hybrid 主模型。
-- Windows PowerShell 中的 `python.exe` 可能是 Microsoft Store 占位符；本项目推荐直接使用 `D:\ProgramData\anaconda3\envs\mybase\python.exe`。

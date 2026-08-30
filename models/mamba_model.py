@@ -17,9 +17,6 @@ class MambaBlock(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         dropout: float = 0.1,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
     ):
         super().__init__()
         if OfficialMamba is None:
@@ -48,9 +45,6 @@ class MambaClassifier(nn.Module):
         expand: int = 2,
         max_len: int = 256,
         pooling: str = "mean",
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
     ):
         super().__init__()
         self.max_len = max_len
@@ -65,9 +59,6 @@ class MambaClassifier(nn.Module):
                     d_conv=d_conv,
                     expand=expand,
                     dropout=dropout,
-                    lora=lora,
-                    r=r,
-                    alpha=alpha,
                 )
                 for _ in range(depth)
             ]

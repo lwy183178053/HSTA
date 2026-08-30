@@ -2,8 +2,7 @@ import math
 
 import torch
 import torch.nn as nn
-
-from .lora_layers import make_linear
+import torch.nn.functional as F
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -12,9 +11,7 @@ class MultiHeadSelfAttention(nn.Module):
         dim: int,
         heads: int = 4,
         dropout: float = 0.1,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
+        attention_backend: str = "manual",
     ):
         super().__init__()
         if dim % heads != 0:
@@ -22,10 +19,15 @@ class MultiHeadSelfAttention(nn.Module):
         self.dim = dim
         self.heads = heads
         self.head_dim = dim // heads
-        self.q_proj = make_linear(dim, dim, lora=lora, r=r, alpha=alpha, dropout=dropout)
-        self.k_proj = make_linear(dim, dim, lora=lora, r=r, alpha=alpha, dropout=dropout)
-        self.v_proj = make_linear(dim, dim, lora=lora, r=r, alpha=alpha, dropout=dropout)
-        self.out_proj = make_linear(dim, dim, lora=lora, r=r, alpha=alpha, dropout=dropout)
+        self.attention_backend = str(attention_backend).lower()
+        if self.attention_backend not in {"manual", "flash"}:
+            raise ValueError("attention_backend must be 'manual' or 'flash'")
+        self.actual_attention_backend = "uninitialized"
+        self.flash_attention_enforced = self.attention_backend == "flash"
+        self.q_proj = nn.Linear(dim, dim)
+        self.k_proj = nn.Linear(dim, dim)
+        self.v_proj = nn.Linear(dim, dim)
+        self.out_proj = nn.Linear(dim, dim)
         self.attn_drop = nn.Dropout(dropout)
         self.proj_drop = nn.Dropout(dropout)
 
@@ -37,9 +39,23 @@ class MultiHeadSelfAttention(nn.Module):
         q = self._shape(self.q_proj(x))
         k = self._shape(self.k_proj(x))
         v = self._shape(self.v_proj(x))
-        attn = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        attn = attn.softmax(dim=-1)
-        y = self.attn_drop(attn) @ v
+        if self.attention_backend == "flash":
+            if not q.is_cuda or q.dtype not in {torch.float16, torch.bfloat16}:
+                raise RuntimeError(
+                    "FlashAttention requires CUDA tensors with FP16 or BF16 autocast; "
+                    "strict flash mode does not silently fall back."
+                )
+            from torch.nn.attention import SDPBackend, sdpa_kernel
+
+            dropout_p = self.attn_drop.p if self.training else 0.0
+            with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                y = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+            self.actual_attention_backend = "flash"
+        else:
+            attn = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            attn = attn.softmax(dim=-1)
+            y = self.attn_drop(attn) @ v
+            self.actual_attention_backend = "manual"
         y = y.transpose(1, 2).contiguous().view(x.shape[0], x.shape[1], self.dim)
         return self.proj_drop(self.out_proj(y))
 
@@ -50,13 +66,16 @@ class AttentionBlock(nn.Module):
         dim: int,
         heads: int = 4,
         dropout: float = 0.1,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
+        attention_backend: str = "manual",
     ):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
-        self.attn = MultiHeadSelfAttention(dim, heads=heads, dropout=dropout, lora=lora, r=r, alpha=alpha)
+        self.attn = MultiHeadSelfAttention(
+            dim,
+            heads=heads,
+            dropout=dropout,
+            attention_backend=attention_backend,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.attn(self.norm(x))
@@ -68,18 +87,15 @@ class FeedForwardBlock(nn.Module):
         dim: int,
         mlp_ratio: int = 4,
         dropout: float = 0.1,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
     ):
         super().__init__()
         hidden = dim * mlp_ratio
         self.norm = nn.LayerNorm(dim)
         self.net = nn.Sequential(
-            make_linear(dim, hidden, lora=lora, r=r, alpha=alpha, dropout=dropout),
+            nn.Linear(dim, hidden),
             nn.GELU(),
             nn.Dropout(dropout),
-            make_linear(hidden, dim, lora=lora, r=r, alpha=alpha, dropout=dropout),
+            nn.Linear(hidden, dim),
             nn.Dropout(dropout),
         )
 
@@ -94,13 +110,10 @@ class TransformerEncoderBlock(nn.Module):
         heads: int = 4,
         mlp_ratio: int = 4,
         dropout: float = 0.1,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
     ):
         super().__init__()
-        self.attention = AttentionBlock(dim, heads=heads, dropout=dropout, lora=lora, r=r, alpha=alpha)
-        self.ffn = FeedForwardBlock(dim, mlp_ratio=mlp_ratio, dropout=dropout, lora=lora, r=r, alpha=alpha)
+        self.attention = AttentionBlock(dim, heads=heads, dropout=dropout)
+        self.ffn = FeedForwardBlock(dim, mlp_ratio=mlp_ratio, dropout=dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.attention(x)
@@ -118,9 +131,6 @@ class TrafficTransformer(nn.Module):
         mlp_ratio: int = 4,
         dropout: float = 0.1,
         max_len: int = 256,
-        lora: bool = False,
-        r: int = 8,
-        alpha: int = 16,
     ):
         super().__init__()
         self.max_len = max_len
@@ -134,9 +144,6 @@ class TrafficTransformer(nn.Module):
                     heads=heads,
                     mlp_ratio=mlp_ratio,
                     dropout=dropout,
-                    lora=lora,
-                    r=r,
-                    alpha=alpha,
                 )
                 for _ in range(depth)
             ]
