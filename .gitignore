@@ -6,10 +6,9 @@ __pycache__/
 venv/
 .env
 
-# Local experiment outputs and paper drafts.
+# Local experiment outputs.
 results/
 logs/
-paper/
 tmp/
 .worktrees/
 
@@ -25,3 +24,5 @@ data/**
 *.h5
 *.npz
 *.zip
+!paper/*.zip
+!paper/**/*.zip
