@@ -1,51 +1,51 @@
-# 项目架构
+# Model Architecture
 
-## 统一输入
+## Unified input
 
-数据管线将每条加密 flow 转换为 `[B, 30, 3]`：
+The data pipeline converts each encrypted flow into `[B, 30, 3]`:
 
 ```text
-包大小 | 传输方向 | 包间隔时间
+packet size | transmission direction | inter-arrival time
 ```
 
-- `data/preprocess.py`：从 DataZoo 原始数据生成统一 CSV。
-- `data/dataset.py`：读取 CSV，按 flow 划分数据集，完成标准化并创建 DataLoader。
-- `data/sampler.py`：提供数据采样和类别平衡相关逻辑。
+- `data/preprocess.py` creates task-specific CSV files from DataZoo-compatible source data.
+- `data/dataset.py` reconstructs packet rows into fixed-length flow tensors, fits the scaler on training data, and creates data loaders.
+- `data/sampler.py` handles dataset initialization, temporal splits, class selection, and feature extraction.
 
-训练和测试使用 flow 级、时间隔离的划分，避免同一 flow 的数据泄漏到不同集合。
+Splits are flow-level and time-aware so packets from one flow cannot appear in multiple sets.
 
-## HSTA 主模型
+## HSTA
 
-`models/hsta.py` 实现论文修改版 10 的主结构：
+`models/hsta.py` implements the main architecture:
 
 ```text
 [B,30,3]
-  -> Linear(3,128) + 位置编码
-  -> Mamba 模块
-  -> Mamba 模块
+  -> Linear(3,128) + positional encoding
+  -> Mamba block
+  -> Mamba block
   -> Transition FFN: 128 -> 512 -> 128
-  -> 四头注意力
+  -> four-head self-attention
   -> Refinement FFN: 128 -> 512 -> 128
-  -> LayerNorm + 均值池化
-  -> Linear(128, 类别数)
+  -> LayerNorm + mean pooling
+  -> Linear(128, number of classes)
 ```
 
-所有序列模块保持 `[B,30,128]`。`models/mamba_model.py` 提供残差 Mamba 模块，`models/transformer.py` 提供注意力和前馈模块。HSTA 工厂还支持无注意力、前置注意力和中置注意力消融。
+Every sequence sublayer preserves `[B, 30, 128]`. Mamba blocks use pre-normalization, selective state-space mixing, dropout, and residual addition. FFN and attention blocks use the same pre-normalized residual pattern.
 
-最终 HSTA 使用 PyTorch SDPA 的 FlashAttention 后端；它是实现层面的效率优化，不改变论文中的注意力定义。
+The final configuration uses PyTorch scaled dot-product attention with the FlashAttention CUDA backend. This is an implementation backend for the exact attention operation; it does not change the model definition.
 
-## 对比模型
+## Comparison models
 
 ```text
-models/gru.py                      五层 GRU
-models/transformer.py              五层 Transformer
-models/adapted_sota.py             30pktTCNET、NetMamba 适配版本
-models/recent_journal_baselines.py SRViT、TrafficAudio、BPF-GNN
+models/gru.py                      GRU baseline
+models/transformer.py              Transformer baseline and attention blocks
+models/adapted_sota.py             30pktTCNET and NetMamba adaptations
+models/recent_journal_baselines.py SRViT, TrafficAudio, and BPF-GNN
 ```
 
-所有模型共用相同的输入、训练入口和评估流程。近期基线保留各自的核心结构，例如 TrafficAudio 的 MFCC/CNN 分支和 BPF-GNN 的分层图构造。
+All models share the same training, evaluation, input length, and feature constraints.
 
-## 运行关系
+## Execution flow
 
 ```text
 configs/*.yaml
@@ -54,11 +54,9 @@ configs/*.yaml
 run_experiments.py -> train.py -> data.dataset + models.build_model
        |                              |
        v                              v
-results/<实验组>/<实验名>/       best.pt / latest.pt / metrics.json
+results/<group>/<run>/          best.pt / latest.pt / metrics.json
        |
        +-> evaluate.py
        +-> benchmark_efficiency.py
-       +-> summarize_paper_main_results.py
+       +-> scripts/summarize_paper_main_results.py
 ```
-
-`paper/` 不在上述运行链路中，仅作为论文归档目录保存。

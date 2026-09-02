@@ -24,5 +24,6 @@ data/**
 *.h5
 *.npz
 *.zip
-!paper/*.zip
-!paper/**/*.zip
+
+# Manuscript and submission materials live in the sibling private repository.
+/paper/
