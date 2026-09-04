@@ -89,7 +89,7 @@ HSTA uses PyTorch scaled dot-product attention. The `flash` configuration select
 If you use this code, cite the associated manuscript:
 
 ```text
-W. Liu, N. Su, Y. Liu, D. Liu, Q. Zhang, and H. Zhao,
+W. Liu, Y. Liu, N. Su, and S. Ji,
 "HSTA: A Lightweight Hybrid State-Space and Attention Model for
 Encrypted Traffic Classification," manuscript under review.
 ```
