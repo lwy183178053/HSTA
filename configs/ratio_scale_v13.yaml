@@ -1,0 +1,448 @@
+# =============================================================================
+# HSTA v13 -- Study: Mamba:Attention RATIO  (the core study of this revision)
+# =============================================================================
+#
+# THE CLAIM UNDER TEST
+#   The depth ratio of state-space layers to attention layers is a real design
+#   variable, and 2:1 is better than the alternatives.
+#
+# WHY IT MATTERS
+#   The submission contains NO ratio evidence. Every HSTA-family run on disk
+#   uses exactly 2 Mamba + 1 attention, so "the 2:1 combination works well" is
+#   an untested intuition. Front/Middle attention are ALSO 2:1, so in the
+#   existing data the ratio and the placement are CONFOUNDED.
+#
+# WHAT IS HELD FIXED
+#   Width (dim=128), heads (4), dropout, FFN ratio (4), positional encoding,
+#   pooling, sequence length (30), training protocol, and -- crucially --
+#   PLACEMENT. In every arm the attention block sits at the same relative
+#   position: after the state-space stack, after one gate FFN, immediately
+#   before the trailing FFN. Only the NUMBER of state-space blocks changes.
+#
+#   Layout template:  (mamba)^M , mlp , (attention)^A , (mlp)^M
+#
+# THE FIVE ARMS -- MEASURED parameter counts (scripts/alignment_models.py)
+#   ratio  layout                                        params    vs HSTA
+#   1:0    mamba|mlp                                     287,400   -52.3%
+#   1:1    mamba|mlp|attention|mlp                       485,672   -19.4%
+#   2:1    mamba|mamba|mlp|attention|mlp                 602,408      0%   <- published
+#   3:1    mamba|mamba|mamba|mlp|attention|mlp           719,144   +19.4%
+#   4:1    mamba|mamba|mamba|mamba|mlp|attention|mlp     835,880   +38.8%
+#
+#   Why exactly these five:
+#     * 1:1 and 3:1 bracket the claimed optimum, so an interior peak is visible.
+#     * 4:1 gives the trend beyond 3:1: without it a reviewer cannot tell whether
+#       2:1 is special or merely the smallest arm tested.
+#     * 1:0 is the clean no-attention control and is deliberately the lightest
+#       arm, making it a conservative baseline for the attention component.
+#
+# -----------------------------------------------------------------------------
+# WHICH COMPARISONS CARRY AN EFFICIENCY CLAIM (read this before writing)
+# -----------------------------------------------------------------------------
+#   Parameters RISE monotonically with the number of Mamba blocks:
+#       1:1 (486k) < 2:1 (602k) < 3:1 (719k) < 4:1 (836k)
+#
+#   Therefore:
+#     * 2:1 vs 3:1 and 2:1 vs 4:1 ARE efficiency comparisons. If 2:1 wins, it
+#       wins with FEWER parameters. This is the defensible framing.
+#     * 2:1 vs 1:1 is NOT an efficiency comparison -- 1:1 is 19% SMALLER. If
+#       2:1 wins there, the correct claim is ACCURACY at higher cost, and you
+#       must say so. Do not describe it as a parameter win.
+#
+#   scripts/ratio_calculator.py mirrors the official mamba_ssm parameterisation
+#   and is regression-tested against the measured HSTA counts. The fixed-width
+#   sweep still changes model size, so use the parameter-matched study for ratio
+#   claims.
+#
+# WHY ONLY THE 60-CLASS TASK
+#   QUIC-40 is not an independent task: it is the top-40 classes BY TRAINING
+#   FREQUENCY of the same QUIC-60 class list, under the same dataset, the same
+#   time-based split and the same preprocessing. The two are NESTED, so pairing
+#   them does not double the evidence. The 60-class task is also strictly harder
+#   (class-imbalance Max/Min rises from 3.64 to 8.84), so a ratio result that
+#   holds there is the stronger result.
+#
+#   Do NOT use the 40 -> 60 comparison to claim superior robustness to class
+#   expansion: the stored numbers show SRViT (0.47 pp) and 30pktTCNET (0.18 pp)
+#   degrade LESS than HSTA (0.88 pp), so that claim is not supportable.
+#
+# WHY 6 SEEDS
+#   At n=3 the exact Wilcoxon signed-rank test bottoms out at p=0.25, so a
+#   3-seed result CANNOT reach significance no matter how large the gap. At n=6
+#   the two-sided floor is 2/2^6 = 0.031, so the paired test can actually
+#   support a claim. Every arm uses the SAME six seeds, so all comparisons are
+#   paired. Seeds: 42, 2025, 3407, 1337, 7, 2024
+#
+# -----------------------------------------------------------------------------
+# EXECUTION TIERS -- run in order, stop whenever time runs out.
+# Resume-safe: run_experiments.py --resume skips any experiment whose
+# summary.csv and best.pt already exist.
+#
+#   TIER A  30 runs  ~4-8 h on 3 workers
+#       All five arms on QUIC-60, 6 seeds. THIS ALONE IS ENOUGH to state the
+#       ratio result. If you only ever run one tier, run this one.
+#
+#   TIER B  +18 runs  ~2-4 h
+#       The three decisive arms (1:1, 2:1, 3:1) on TLS-60. Answers whether the
+#       ratio effect depends on protocol burstiness. A small TLS effect is
+#       itself a finding -- report it either way.
+#
+#   TIER C (+12 runs) -- QUIC-40 ladder, 2:1 and 3:1, 6 seeds.
+#   This checks whether the harder QUIC-60 pattern persists on the nested
+#   40-class task without expanding the study to a redundant TLS-40 arm.
+#
+#   TOTAL: 60 runs.
+# -----------------------------------------------------------------------------
+#
+# RUN
+#   bash scripts/run_evidence_pack.sh calc                 # seconds, no GPU
+#   bash scripts/run_evidence_pack.sh parallel_ratio 3     # ~6-12 h on 3 workers
+#   bash scripts/run_evidence_pack.sh ratio_report         # tables + verdict
+# =============================================================================
+
+base:
+  output_dir: results/ratio_scale_v13
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model: hsta
+  model_cfg:
+    dim: 128
+    hidden: 128
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 256
+    attention_backend: flash
+
+experiments:
+  # ===========================================================================
+  # TIER A (30 runs) -- all five arms on QUIC-60, 6 seeds.
+  # The minimum needed to state and defend the ratio result.
+  # ===========================================================================
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed1337
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed7
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a0_1to0_quic60_s_seed2024
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed1337
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed7
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_quic60_s_seed2024
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed1337
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed7
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic60_s_seed2024
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed1337
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed7
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic60_s_seed2024
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed1337
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed7
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m4a1_4to1_quic60_s_seed2024
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mamba, mamba, mlp, attention, mlp]
+
+  # ===========================================================================
+  # TIER B (+18 runs) -- decisive arms on TLS-60, 6 seeds.
+  # Does the ratio effect depend on protocol burstiness?
+  # ===========================================================================
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed42
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed2025
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed3407
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed1337
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed7
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m1a1_1to1_tls60_s_seed2024
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed42
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed2025
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed3407
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed1337
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed7
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_tls60_s_seed2024
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed42
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed2025
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed3407
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed1337
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed7
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_tls60_s_seed2024
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+
+  # ===========================================================================
+  # TIER C (+12 runs) -- QUIC-40 ladder, 2:1 and 3:1, 6 seeds.
+  # ===========================================================================
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed42
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed2025
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed3407
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed1337
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed7
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m2a1_2to1_quic40_s_seed2024
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed42
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed2025
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed3407
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed1337
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed7
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 7
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]
+  - exp_name: ratio_m3a1_3to1_quic40_s_seed2024
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      layout: [mamba, mamba, mamba, mlp, attention, mlp]

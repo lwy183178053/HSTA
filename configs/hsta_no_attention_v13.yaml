@@ -1,0 +1,125 @@
+# =============================================================================
+# HSTA attention ablation -- REBUILT and made comparable (v13 evidence pack)
+# =============================================================================
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# `configs/hsta_no_attention.yaml` declares 12 experiments and is listed in
+# AGENTS.md as experiment group `results/hsta_no_attention`, but the results
+# directory does not exist on disk. The "No Attention" row of Table 4 in the
+# submission therefore has no traceable run record. This config re-runs it.
+#
+# TWO DEFECTS IN THE ORIGINAL CONFIG, FIXED HERE
+# ----------------------------------------------
+# 1. `attention_backend` was NOT set, so it fell back to the model default
+#    "manual", while the HSTA main runs (configs/hsta_flash.yaml) use "flash".
+#    The ablation was therefore measured under a different attention-backend
+#    setting than the model it is meant to ablate. Fixed: attention_backend
+#    is set explicitly to "flash" so the ONLY difference is layout.
+#
+# 2. The layout mamba|mamba|mlp|mlp|mlp replaces the attention block with a
+#    THIRD feed-forward block. That equalises DEPTH (5 blocks) but NOT
+#    parameter count, so the "No Attention" variant is not a capacity-matched
+#    control for HSTA. The paper's phrase "uses an additional feed-forward
+#    module" also reads as an addition rather than a replacement.
+#    -> Do NOT guess the size of this gap. Run `scripts/alignment_models.py`
+#       first: it constructs each candidate and prints its exact parameter
+#       count, so the manuscript can state the capacity difference precisely.
+#
+# COMPARABILITY NOTE (for the manuscript)
+# ---------------------------------------
+# Front / Middle attention variants ARE exactly parameter-matched to HSTA
+# (verified against the stored run records), so HSTA-vs-Front and
+# HSTA-vs-Middle are clean, capacity-equal comparisons.
+# The No Attention row is NOT, and must be reported as such.
+#
+# RUN
+# ---
+#   bash scripts/run_evidence_pack.sh stage_ablation
+#
+# EXPECTED OUTPUT
+# ---------------
+#   results/hsta_no_attention_v13/<exp_name>/{best.pt,metrics.json,summary.csv,...}
+#   results/hsta_no_attention_v13/all_results.csv
+#
+# NOTE: output_dir is deliberately NEW (suffix `_v13`) so the rebuilt results can
+# never be confused with, or silently overwrite, any earlier artefact.
+# =============================================================================
+
+base:
+  output_dir: results/hsta_no_attention_v13
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model: hsta
+  model_cfg:
+    dim: 128
+    hidden: 128
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 256
+    # FIX 1: explicit flash backend, identical to configs/hsta_flash.yaml
+    attention_backend: flash
+    # Layout: identical to the original no-attention config (attention replaced
+    # by a third FFN, depth held at 5).
+    layout: [mamba, mamba, mlp, mlp, mlp]
+
+experiments:
+  # ---- TLS-40 ----
+  - exp_name: ablation_v13_no_attention_tls40_s_seed42
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 42
+  - exp_name: ablation_v13_no_attention_tls40_s_seed2025
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 2025
+  - exp_name: ablation_v13_no_attention_tls40_s_seed3407
+    data_csv: data/processed/datazoo_tls40_s_seq30.csv
+    seed: 3407
+  # ---- QUIC-40 ----
+  - exp_name: ablation_v13_no_attention_quic40_s_seed42
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 42
+  - exp_name: ablation_v13_no_attention_quic40_s_seed2025
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 2025
+  - exp_name: ablation_v13_no_attention_quic40_s_seed3407
+    data_csv: data/processed/datazoo_quic40_s_seq30.csv
+    seed: 3407
+  # ---- TLS-60 ----
+  - exp_name: ablation_v13_no_attention_tls60_s_seed42
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 42
+  - exp_name: ablation_v13_no_attention_tls60_s_seed2025
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 2025
+  - exp_name: ablation_v13_no_attention_tls60_s_seed3407
+    data_csv: data/processed/datazoo_tls60_s_seq30.csv
+    seed: 3407
+  # ---- QUIC-60 ----
+  - exp_name: ablation_v13_no_attention_quic60_s_seed42
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+  - exp_name: ablation_v13_no_attention_quic60_s_seed2025
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+  - exp_name: ablation_v13_no_attention_quic60_s_seed3407
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407

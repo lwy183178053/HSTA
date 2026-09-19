@@ -52,11 +52,23 @@ def main():
     parser.add_argument("--force", action="store_true", help="Rerun experiments even when results exist.")
     parser.add_argument("--extend", action="store_true", help="Continue finished experiments to the configured epoch count.")
     parser.add_argument("--only", nargs="*", default=None, help="Only run the listed experiment names.")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Override base output_dir. Intended for parallel execution: each worker "
+            "writes to its own directory so concurrent runs cannot race on "
+            "all_results.csv. Per-run artefacts (metrics.json, summary.csv, best.pt) "
+            "are written under this directory either way."
+        ),
+    )
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
     base = cfg["base"]
+    if args.output_dir:
+        base["output_dir"] = args.output_dir
     configured = [_merge_experiment(base, exp) for exp in cfg["experiments"]]
     configured_names = {exp["exp_name"] for exp in configured}
     selected = set(args.only or [])

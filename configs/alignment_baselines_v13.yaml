@@ -1,0 +1,266 @@
+# =============================================================================
+# HSTA v13 -- Parameter-aligned baselines, QUIC-60 only, 6 seeds
+# =============================================================================
+#
+# PURPOSE
+#   The submission claims "41.5% fewer parameters than a pure Transformer".
+#   That compares HSTA (2 state-space blocks) against a depth-5 Transformer, so
+#   the gap is largely a DEPTH-CONFIGURATION artefact. This config supplies the
+#   equal-parameter comparison that closes that objection.
+#
+#   It also addresses a second fairness problem: the reconstructed baselines
+#   (SRViT / TrafficAudio / BPF-GNN) were run at depth=4 while
+#   GRU / Transformer / 30pktTCNET / NetMamba used depth=5.
+#
+# SCOPE: QUIC-60 ONLY
+#   40-class tasks are dropped from this revision: QUIC-40 is the top-40 classes
+#   BY TRAINING FREQUENCY of the same QUIC-60 list (same dataset, same split,
+#   same preprocessing), so it is a nested subset, not independent evidence.
+#
+# DEPTH SELECTION -- from the MEASURED probe, not from an analytic estimate
+#   scripts/alignment_models.py reports the real parameter count of every
+#   candidate. The analytic calculator in scripts/ratio_calculator.py is now
+#   calibrated against the stored HSTA run records; the probe remains the
+#   authoritative check for each concrete model implementation.
+#
+#   HSTA reference: 604,988 params (QUIC-60, 60 classes)
+#
+#   model                 depth   params(60cls)   vs HSTA    role
+#   transformer             3        636,348      +5.2%     EQUAL-PARAMETER control
+#   netmamba_adapted        5        624,956      +3.3%     state-space control
+#   30pktTCNET-adapted      5        520,636     -13.9%     depth-consistent only
+#   gru                     5        455,356     -24.7%     depth-consistent only
+#
+#   >>> READ BEFORE WRITING THE EFFICIENCY CLAIM <<<
+#   * transformer depth3 IS the equal-parameter control. If HSTA beats it the
+#     parameter-efficiency claim survives. If it does NOT, the honest conclusion
+#     is that HSTA matches an equal-sized Transformer, and "41.5% fewer
+#     parameters" must be replaced by "equal accuracy at equal parameters",
+#     with the depth-5 comparison reported only as context.
+#   * GRU depth5 is 24.7% SMALLER than HSTA. It is NOT an equal-parameter
+#     control and must NEVER be used to claim a parameter advantage. It is here
+#     only so every baseline is reported at one depth.
+#   * netmamba_adapted depth5 is 3.3% LARGER, so a win over it is a win at
+#     slightly higher cost -- state the direction explicitly.
+#
+# WHY 6 SEEDS
+#   At n=3 the exact Wilcoxon signed-rank test bottoms out at p=0.25, so a
+#   3-seed result cannot reach significance whatever the effect size. At n=6
+#   the floor is 2/2^6 = 0.031. All arms share the same six seeds so every
+#   comparison is paired. Seeds: 42, 2025, 3407, 1337, 7, 2024
+#
+# COST
+#   4 models x 6 seeds = 24 runs. ~5-9 h serial, ~2-3 h with 3 workers.
+#
+# RUN
+#   bash scripts/run_evidence_pack.sh parallel_alignment 3
+#   bash scripts/run_evidence_pack.sh report
+#
+# NOT COVERED
+#   SRViT / TrafficAudio / BPF-GNN are NOT re-run at a matched depth: they are
+#   structural re-implementations and re-tuning them is a separate, much larger
+#   task. Their depth=4 configuration must instead be DISCLOSED in the
+#   manuscript together with their parameter counts.
+# =============================================================================
+base:
+  output_dir: results/alignment_baselines_v13
+  seed: 42
+  epochs: 100
+  patience: 20
+  batch_size: 512
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 3
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model_cfg:
+    dim: 128
+    hidden: 128
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 256
+
+experiments:
+  # ===========================================================================
+  # transformer  depth=3  --  EQUAL-PARAMETER CONTROL (636,348 vs HSTA 604,988, +5.2%)
+  # ===========================================================================
+  - exp_name: alignv13_transformer_d3_quic60_s_seed42
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+  - exp_name: alignv13_transformer_d3_quic60_s_seed2025
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+  - exp_name: alignv13_transformer_d3_quic60_s_seed3407
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+  - exp_name: alignv13_transformer_d3_quic60_s_seed1337
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+  - exp_name: alignv13_transformer_d3_quic60_s_seed7
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+  - exp_name: alignv13_transformer_d3_quic60_s_seed2024
+    model: transformer
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      depth: 3
+      attention_backend: manual
+
+  # ===========================================================================
+  # netmamba_adapted  depth=5  --  STATE-SPACE CONTROL (624,956, +3.3%)
+  # ===========================================================================
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed42
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed2025
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed3407
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed1337
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed7
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_netmamba_adapted_d5_quic60_s_seed2024
+    model: netmamba_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      depth: 5
+
+  # ===========================================================================
+  # 30pkttcnet_adapted  depth=5  --  depth-consistent only (520,636, -13.9%)
+  # ===========================================================================
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed42
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed2025
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed3407
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed1337
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed7
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      depth: 5
+  - exp_name: alignv13_30pkttcnet_adapted_d5_quic60_s_seed2024
+    model: 30pkttcnet_adapted
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      depth: 5
+
+  # ===========================================================================
+  # gru  depth=5  --  depth-consistent only (455,356, -24.7%) - NEVER claim a parameter win here
+  # ===========================================================================
+  - exp_name: alignv13_gru_d5_quic60_s_seed42
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 42
+    model_cfg:
+      depth: 5
+      pooling: "last"
+  - exp_name: alignv13_gru_d5_quic60_s_seed2025
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2025
+    model_cfg:
+      depth: 5
+      pooling: "last"
+  - exp_name: alignv13_gru_d5_quic60_s_seed3407
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 3407
+    model_cfg:
+      depth: 5
+      pooling: "last"
+  - exp_name: alignv13_gru_d5_quic60_s_seed1337
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 1337
+    model_cfg:
+      depth: 5
+      pooling: "last"
+  - exp_name: alignv13_gru_d5_quic60_s_seed7
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 7
+    model_cfg:
+      depth: 5
+      pooling: "last"
+  - exp_name: alignv13_gru_d5_quic60_s_seed2024
+    model: gru
+    data_csv: data/processed/datazoo_quic60_s_seq30.csv
+    seed: 2024
+    model_cfg:
+      depth: 5
+      pooling: "last"

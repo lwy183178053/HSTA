@@ -17,7 +17,7 @@ The validated Windows environment uses Python 3.13.5.
 Training and Mamba/CUDA experiments use `Ubuntu-22.04` and `/opt/traffic-mamba-venv`:
 
 ```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && source /opt/traffic-mamba-venv/bin/activate && python <command>"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python <command>"
 ```
 
 `docker-desktop` and `traffic-ubuntu-22.04` are not supported project environments. Always specify `wsl -d Ubuntu-22.04` explicitly.

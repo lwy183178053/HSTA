@@ -22,6 +22,7 @@ benchmark_efficiency.py       Parameters, FLOPs, latency, and memory benchmark
 ```
 
 Generated datasets, checkpoints, logs, and other large local artifacts are excluded from Git. See [docs/reproducibility.md](docs/reproducibility.md) for the complete protocol.
+The evidence-pack workflow for parameter probes, controlled ablations, ratio studies, and statistical summaries is documented in [docs/EVIDENCE_PACK_README.md](docs/EVIDENCE_PACK_README.md).
 
 ## Environment
 
@@ -35,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
 Mamba/CUDA experiments use WSL `Ubuntu-22.04` with `/opt/traffic-mamba-venv`:
 
 ```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/MM-MLP-A-MLP && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
 ```
 
 ## Data preparation
