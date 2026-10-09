@@ -100,6 +100,10 @@ class PktTCNetAdapted(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
+        if x.shape[-1] != self.input_proj[0].in_channels:
+            raise ValueError(f"expected feature_dim={self.input_proj[0].in_channels}, got {x.shape[-1]}")
         # Conv1d expects channels before the 30-packet time axis.
         x = x.transpose(1, 2)
         x = self.input_proj(x)

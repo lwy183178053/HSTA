@@ -9,7 +9,27 @@ import torch.nn.functional as F
 from .flash_attention import FlashSelfAttention
 
 
-class RelativePositionSelfAttention(nn.Module):
+SRVIT_ADAPTED_NOTE = (
+    "SRViT-adapted: multi-scale packet Conv1d front-end and FlashAttention "
+    "under the shared [30, 3] packet representation; this is not the original image/byte pipeline."
+)
+TRAFFICAUDIO_ADAPTED_NOTE = (
+    "TrafficAudio-adapted: MFCC-style encoding of the three standardized packet "
+    "features under the shared [30, 3] packet representation; the input is not raw audio."
+)
+BPF_GNN_ADAPTED_NOTE = (
+    "BPF-GNN-adapted: feature-to-packet-to-flow dense graph hierarchy under the "
+    "shared [30, 3] packet representation; original side information and edge features are unavailable."
+)
+
+
+class FlashPositionSelfAttention(nn.Module):
+    """FlashAttention wrapper used by the SRViT-adapted reconstruction.
+
+    This project requires PyTorch FlashAttention only. Packet positions are
+    injected by the learned embedding in ``SRViT`` before this module.
+    """
+
     def __init__(self, dim: int, heads: int, max_len: int, dropout: float):
         super().__init__()
         if dim % heads != 0:
@@ -30,7 +50,7 @@ class SRViTBlock(nn.Module):
     def __init__(self, dim: int, heads: int, max_len: int, mlp_ratio: int, dropout: float):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
-        self.attn = RelativePositionSelfAttention(dim, heads, max_len, dropout)
+        self.attn = FlashPositionSelfAttention(dim, heads, max_len, dropout)
         self.norm2 = nn.LayerNorm(dim)
         hidden = dim * mlp_ratio
         self.ffn = nn.Sequential(
@@ -62,9 +82,12 @@ class SRViT(nn.Module):
         patch_kernel_sizes: tuple[int, ...] = (3, 5, 7),
     ):
         super().__init__()
+        if input_dim <= 0 or num_classes <= 0 or dim <= 0 or max_len <= 0:
+            raise ValueError("input_dim, num_classes, dim, and max_len must be positive")
         self.patch_kernel_sizes = tuple(int(k) for k in patch_kernel_sizes)
         if any(k <= 0 or k % 2 == 0 for k in self.patch_kernel_sizes):
             raise ValueError("SRViT patch kernels must be positive odd integers")
+        self.adapted_note = SRVIT_ADAPTED_NOTE
         self.embed = nn.Linear(input_dim, dim)
         self.patch_branches = nn.ModuleList(
             [nn.Conv1d(dim, dim, kernel_size=k, padding=k // 2) for k in self.patch_kernel_sizes]
@@ -77,6 +100,8 @@ class SRViT(nn.Module):
         self.blocks = nn.ModuleList(
             [SRViTBlock(dim, heads, max_len, mlp_ratio, dropout) for _ in range(depth)]
         )
+        self.position = nn.Parameter(torch.zeros(1, max_len, dim))
+        nn.init.normal_(self.position, std=0.02)
         self.norm = nn.LayerNorm(dim)
         self.head = nn.Sequential(
             nn.Linear(dim, dim),
@@ -86,9 +111,16 @@ class SRViT(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
+        _, seq_len, feature_dim = x.shape
+        if feature_dim != self.embed.in_features:
+            raise ValueError(f"expected feature_dim={self.embed.in_features}, got {feature_dim}")
+        if seq_len > self.position.shape[1]:
+            raise ValueError(f"seq_len={seq_len} exceeds max_len={self.position.shape[1]}")
         x = self.embed(x).transpose(1, 2)
         x = self.patch_fusion(torch.cat([branch(x) for branch in self.patch_branches], dim=1))
-        x = x.transpose(1, 2)
+        x = x.transpose(1, 2) + self.position[:, :seq_len]
         for block in self.blocks:
             x = block(x)
         return self.head(self.norm(x).mean(dim=1))
@@ -120,13 +152,19 @@ def _dct_matrix(n_mfcc: int, n_mels: int) -> torch.Tensor:
 class PacketMFCC(nn.Module):
     def __init__(
         self,
-        n_fft: int = 16,
-        win_length: int = 16,
-        hop_length: int = 4,
+        n_fft: int = 32,
+        win_length: int = 32,
+        hop_length: int = 8,
         n_mels: int = 16,
         n_mfcc: int = 8,
     ):
         super().__init__()
+        if n_fft <= 0 or win_length <= 0 or hop_length <= 0:
+            raise ValueError("n_fft, win_length, and hop_length must be positive")
+        if win_length > n_fft:
+            raise ValueError("win_length must not exceed n_fft")
+        if n_mels <= 0 or n_mfcc <= 0 or n_mels > n_fft // 2 + 1:
+            raise ValueError("n_mels must be in [1, n_fft // 2 + 1] and n_mfcc must be positive")
         self.n_fft = n_fft
         self.win_length = win_length
         self.hop_length = hop_length
@@ -141,7 +179,12 @@ class PacketMFCC(nn.Module):
         self.register_buffer("dct", _dct_matrix(n_mfcc, n_mels), persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        waveform = x.reshape(x.shape[0], -1)
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
+        # This is an explicit lightweight adaptation: the three standardized
+        # packet features are serialized as a pseudo-waveform.  It is not raw
+        # audio and is reported as TrafficAudio-adapted.
+        waveform = x.reshape(x.shape[0], -1).float()
         waveform = waveform - waveform.mean(dim=1, keepdim=True)
         waveform = waveform / waveform.std(dim=1, keepdim=True, unbiased=False).clamp_min(1e-5)
         spectrum = torch.stft(
@@ -149,13 +192,14 @@ class PacketMFCC(nn.Module):
             n_fft=self.n_fft,
             hop_length=self.hop_length,
             win_length=self.win_length,
-            window=self.window.to(dtype=waveform.dtype),
+            window=self.window.to(device=waveform.device, dtype=waveform.dtype),
             center=True,
             return_complex=True,
         )
         power = spectrum.abs().square()
         mel = torch.einsum("mf,bft->bmt", self.mel_filterbank.to(power), power)
-        return torch.einsum("cm,bmt->bct", self.dct.to(mel), mel.clamp_min(1e-6).log())
+        features = torch.einsum("cm,bmt->bct", self.dct.to(mel), mel.clamp_min(1e-6).log())
+        return features.to(dtype=x.dtype)
 
 
 class TrafficAudio(nn.Module):
@@ -167,14 +211,19 @@ class TrafficAudio(nn.Module):
         num_classes: int,
         dim: int = 128,
         dropout: float = 0.15,
-        n_fft: int = 16,
-        win_length: int = 16,
-        hop_length: int = 4,
+        n_fft: int = 32,
+        win_length: int = 32,
+        hop_length: int = 8,
         n_mels: int = 16,
         n_mfcc: int = 8,
     ):
         super().__init__()
-        del input_dim
+        if input_dim != 3:
+            raise ValueError("TrafficAudio-adapted expects the shared three-feature packet input")
+        if num_classes <= 0 or dim <= 0:
+            raise ValueError("num_classes and dim must be positive")
+        self.adapted_note = TRAFFICAUDIO_ADAPTED_NOTE
+        self.input_dim = input_dim
         self.mfcc = PacketMFCC(n_fft, win_length, hop_length, n_mels, n_mfcc)
         mid = max(dim // 2, 16)
         self.cnn = nn.Sequential(
@@ -204,6 +253,10 @@ class TrafficAudio(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 3 or x.shape[-1] != self.input_dim:
+            raise ValueError(
+                f"expected [batch, sequence, {self.input_dim}], got {tuple(x.shape)}"
+            )
         mfcc = self.mfcc(x)
         local = self.cnn(mfcc).mean(dim=-1)
         temporal, _ = self.gru(mfcc.transpose(1, 2))
@@ -248,9 +301,14 @@ class BPFGNN(nn.Module):
         num_subflows: int = 5,
     ):
         super().__init__()
+        if input_dim <= 0 or num_classes <= 0 or dim <= 0:
+            raise ValueError("input_dim, num_classes, and dim must be positive")
+        if top_k < 0 or num_subflows <= 0:
+            raise ValueError("top_k must be non-negative and num_subflows must be positive")
         self.input_dim = input_dim
         self.top_k = int(top_k)
         self.num_subflows = int(num_subflows)
+        self.adapted_note = BPF_GNN_ADAPTED_NOTE
         self.scalar_proj = nn.Linear(1, dim)
         self.feature_type = nn.Parameter(torch.zeros(1, 1, input_dim, dim))
         self.feature_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(2)])
@@ -295,11 +353,18 @@ class BPFGNN(nn.Module):
         return torch.maximum(adjacency, torch.maximum(dynamic, dynamic.transpose(1, 2)))
 
     def _subflow_pool(self, packet_features: torch.Tensor) -> torch.Tensor:
-        chunks = torch.tensor_split(packet_features, self.num_subflows, dim=1)
+        sections = min(self.num_subflows, packet_features.shape[1])
+        chunks = torch.tensor_split(packet_features, sections, dim=1)
         return torch.stack([chunk.mean(dim=1) for chunk in chunks], dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch, seq_len, _ = x.shape
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
+        batch, seq_len, feature_dim = x.shape
+        if feature_dim != self.input_dim:
+            raise ValueError(f"expected feature_dim={self.input_dim}, got {feature_dim}")
+        if seq_len <= 0:
+            raise ValueError("sequence length must be positive")
         features = self.scalar_proj(x.unsqueeze(-1)) + self.feature_type
         features = features.view(batch * seq_len, self.input_dim, -1)
         feature_adj = torch.ones(

@@ -12,7 +12,7 @@ The component ablations disable the Conv1d branch or Mamba branch by replacing t
 
 The open-set protocol maps held-out DataZoo applications and deterministic synthetic noise flows to `unknown`. The label encoder always keeps this class at index 100. Training, validation, and testing are disjoint date windows.
 
-The comparison set is deliberately small: 30pktTCNET-adapted and NetMamba-adapted are the shared-input reference methods; SRViT, TrafficAudio, and BPF-GNN are the three retained recent baselines requested for the paper revision. GRU and the standalone Transformer are removed from the registry.
+The comparison set is deliberately small: 30pktTCNET-adapted and NetMamba-adapted are shared-input reference methods; SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted are the three retained recent baselines requested for the paper revision. These are structural adaptations under the common `[30, 3]` input, not full reproductions of the original raw-byte, image, audio, or side-information pipelines. TrafficAudio's internal BiGRU remains part of that reference architecture; only the independent GRU baseline is removed.
 
 ## HSTA-CM-DFT extension
 

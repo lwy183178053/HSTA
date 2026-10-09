@@ -17,12 +17,12 @@ def main() -> None:
         "hsta_cm": "HSTA-CM",
         "hsta-cm-dft": "HSTA-CM-DFT",
         "hsta_cm_dft": "HSTA-CM-DFT",
-        "30pkttcnet-adapted": "30pktTCNET",
-        "netmamba-adapted": "NetMamba",
-        "srvit": "SRViT",
-        "trafficaudio": "TrafficAudio",
-        "bpf-gnn": "BPF-GNN",
-        "bpf_gnn": "BPF-GNN",
+        "30pkttcnet-adapted": "30pktTCNET-adapted",
+        "netmamba-adapted": "NetMamba-adapted",
+        "srvit": "SRViT-adapted",
+        "trafficaudio": "TrafficAudio-adapted",
+        "bpf-gnn": "BPF-GNN-adapted",
+        "bpf_gnn": "BPF-GNN-adapted",
     }
     df["variant"] = df["model"].map(model_names).fillna("unknown")
     df["task"] = df["exp_name"].str.extract(r"((?:tls|quic)22_s)", expand=False)

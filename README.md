@@ -4,13 +4,13 @@ This repository contains the compact open-set experiment code for HSTA-CM on CES
 
 HSTA-CM uses native `Conv1d` for packet-position structure, the current `mamba_ssm` package for temporal modeling, gated fusion, and PyTorch FlashAttention. The model predicts 100 known applications plus `unknown`. Held-out applications and seeded synthetic noise are mapped to `unknown`; train, validation, and test are date-disjoint.
 
-The retained comparison families are 30pktTCNET-adapted, NetMamba-adapted, SRViT, TrafficAudio, and BPF-GNN. GRU, standalone Transformer, 40/60-class tasks, and old evidence scripts are removed from the active registry.
+The retained comparison implementations are 30pktTCNET-adapted, NetMamba-adapted, SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted. They preserve each reference method's main modeling idea while using the common `[30, 3]` packet representation; they are not claimed to reproduce the original raw-byte, image, audio, or side-information pipelines. GRU and standalone Transformer remain absent as independent comparison models, although the TrafficAudio-adapted reference retains its internal BiGRU component.
 
 `HSTA-CM-DFT` is an optional frequency-domain extension experiment. It applies a one-sided `rFFT` along the 30-packet axis, stacks real and imaginary parts as `[B, 2, 3, 16]`, encodes adjacent frequency bins with three residual PyTorch `Conv2d` layers using `(1, 3)` kernels, and fuses the pooled frequency vector with the two-layer Mamba temporal branch. It is reported separately from the primary HSTA-CM comparison.
 
 ## Layout
 
-`data/` contains DataZoo export and temporal CSV loading code. `models/` contains HSTA-CM and the five retained comparison implementations. `configs/` contains the compact S matrix and focused HSTA ablation. `train.py` and `evaluate.py` are the single-run entry points; `run_experiments.py` expands YAML matrices. `scripts/run_wsl_experiments.sh` runs the supported WSL groups. `docs/` records the architecture, scope, and reproducibility protocol.
+`data/` contains DataZoo export and temporal CSV loading code. `models/` contains HSTA-CM and the five retained adapted comparison implementations. `configs/` contains the compact S matrix and focused HSTA ablation. `train.py` and `evaluate.py` are the single-run entry points; `run_experiments.py` expands YAML matrices. `scripts/run_wsl_experiments.sh` runs the supported WSL groups. `docs/` records the architecture, scope, and reproducibility protocol.
 
 Generated datasets, results, logs, and checkpoints are ignored by Git. Raw CESNET traffic is not redistributed.
 

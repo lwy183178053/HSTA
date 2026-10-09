@@ -60,7 +60,11 @@ class MambaClassifier(nn.Module):
         nn.init.normal_(self.pos, std=0.02)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _, seq_len, _ = x.shape
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
+        _, seq_len, feature_dim = x.shape
+        if feature_dim != self.embed.in_features:
+            raise ValueError(f"expected feature_dim={self.embed.in_features}, got {feature_dim}")
         if seq_len > self.max_len:
             raise ValueError(f"seq_len={seq_len} exceeds max_len={self.max_len}")
         x = self.embed(x) + self.pos[:, :seq_len]

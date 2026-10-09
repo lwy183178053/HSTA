@@ -88,6 +88,18 @@ def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
         "hsta_cm_dft_quic22_s_seed42",
     }
     assert all(int(exp["seed"]) == 42 for exp in dft_experiments)
+    by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
+    for exp_name in ("tcnet_tls22_s", "tcnet_quic22_s"):
+        assert by_name[exp_name]["model_cfg"]["depth"] == 5
+    for exp_name in ("netmamba_tls22_s", "netmamba_quic22_s"):
+        assert by_name[exp_name]["model_cfg"]["depth"] == 5
+        assert by_name[exp_name]["model_cfg"]["max_len"] == 256
+    for exp_name in ("srvit_tls22_s", "srvit_quic22_s"):
+        assert by_name[exp_name]["model_cfg"]["depth"] == 4
+    for exp_name in ("trafficaudio_tls22_s", "trafficaudio_quic22_s"):
+        audio_cfg = by_name[exp_name]["model_cfg"]
+        assert audio_cfg["n_fft"] == 32
+        assert audio_cfg["n_mels"] <= audio_cfg["n_fft"] // 2 + 1
     model_cfg = cfg.get("base", {}).get("model_cfg", {})
     assert model_cfg.get("attention_backend") == "flash"
 

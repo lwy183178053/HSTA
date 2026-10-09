@@ -72,8 +72,8 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
     if model == "trafficaudio":
         return TrafficAudio(
             input_dim, num_classes, dim=dim, dropout=dropout,
-            n_fft=_int(cfg, "n_fft", 16), win_length=_int(cfg, "win_length", 16),
-            hop_length=_int(cfg, "hop_length", 4), n_mels=_int(cfg, "n_mels", 16),
+            n_fft=_int(cfg, "n_fft", 32), win_length=_int(cfg, "win_length", 32),
+            hop_length=_int(cfg, "hop_length", 8), n_mels=_int(cfg, "n_mels", 16),
             n_mfcc=_int(cfg, "n_mfcc", 8),
         )
     if model in {"bpf_gnn", "bpfgnn"}:
