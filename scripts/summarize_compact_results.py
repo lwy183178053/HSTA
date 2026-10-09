@@ -1,0 +1,42 @@
+"""Summarize the compact S comparison by model and protocol/task."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+
+def main() -> None:
+    path = Path("results/compact_s/all_results.csv")
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {path}; run scripts/run_wsl_experiments.sh compact_s first")
+    df = pd.read_csv(path)
+    model_names = {
+        "hsta": "HSTA-CM",
+        "30pkttcnet-adapted": "30pktTCNET",
+        "netmamba-adapted": "NetMamba",
+        "srvit": "SRViT",
+        "trafficaudio": "TrafficAudio",
+        "bpf-gnn": "BPF-GNN",
+        "bpf_gnn": "BPF-GNN",
+    }
+    df["variant"] = df["model"].map(model_names).fillna("unknown")
+    df["task"] = df["exp_name"].str.extract(r"((?:tls|quic)22_s)", expand=False)
+    summary = (
+        df[df["variant"] != "unknown"]
+        .groupby(["variant", "task"], as_index=False)
+        .agg(
+            seeds=("seed", "nunique"),
+            accuracy_mean=("test_accuracy", "mean"),
+            accuracy_std=("test_accuracy", "std"),
+            macro_f1_mean=("test_macro_f1", "mean"),
+            macro_f1_std=("test_macro_f1", "std"),
+        )
+    )
+    summary.to_csv(path.with_name("compact_summary.csv"), index=False)
+    print(summary.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()

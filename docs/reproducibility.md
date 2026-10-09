@@ -1,48 +1,9 @@
-# Reproducibility Protocol
+# Reproducibility
 
-This document records the fixed protocol used for the public experiment code.
+Use `Ubuntu-22.04` and `/opt/traffic-mamba-venv` for all Mamba and FlashAttention runs. Install `requirements.txt`, then verify that `mamba_ssm` is at least 2.3.2 and that PyTorch reports CUDA and a FlashAttention kernel.
 
-## Tasks and inputs
+Use the existing CESNET-TLS22 S and CESNET-QUIC22 S files. The checked-in export command uses `--max-train-per-class 1000 --max-val-per-class 1000 --max-test-per-class 1000`; set each cap to 10000 when storage permits. The exporter selects the 100 most frequent training applications, holds out a small set of applications as `unknown`, appends seeded synthetic noise flows, writes packet rows with `source`, and creates explicit date based `train`, `val`, and `test` splits. Smaller classes are kept in full.
 
-The evaluation contains four tasks: QUIC-40, QUIC-60, TLS-40, and TLS-60. Each flow is represented by at most the first 30 packets and the three side-channel features `size`, `direction`, and `delta_time`. Short flows are zero-padded. Payloads, plaintext fields, domain names, and DPI-derived content are excluded.
+Run `bash scripts/run_wsl_experiments.sh main` for the compact matrix or `bash scripts/run_wsl_experiments.sh ablation` for the three HSTA-CM component checks. Results and checkpoints stay under ignored `results/` and `logs/` directories. Never add raw H5 files, checkpoints, credentials, or local environments to Git.
 
-## Splits and preprocessing
-
-- Use the DataZoo-compatible CESNET-QUIC22 and CESNET-TLS-Year22 releases.
-- Preserve the temporal train/validation/test intervals supplied by the dataset pipeline.
-- Select Top-K classes from training data only.
-- Fit `StandardScaler` parameters on training flows only, then transform validation and test flows.
-- Reconstruct packet rows by `flow_id` before batching.
-
-The raw datasets are not included because of size and distribution terms. Users must obtain them from the official releases and follow their licenses.
-
-## Training protocol
-
-- Random seeds: `42`, `2025`, and `3407`.
-- Maximum epochs: 100, with validation Macro-F1 model selection and early stopping.
-- Optimizer: AdamW with learning rate `5e-4` and weight decay `1e-4`.
-- Input length: 30 packets; default training batch size: 512.
-- Report mean and standard deviation over the three seeds.
-
-## Model groups
-
-The main comparison contains GRU, Transformer, 30pktTCNET, NetMamba, SRViT, TrafficAudio, BPF-GNN, and HSTA. Ablations evaluate attention placement and the no-attention variant. Efficiency measurements use batch sizes 1, 32, and 512, 20 warm-up iterations, 100 timed iterations, and five repeats.
-
-## Reproduction commands
-
-```bash
-bash scripts/run_wsl_experiments.sh main_all
-bash scripts/run_wsl_experiments.sh sota_all
-bash scripts/run_wsl_experiments.sh recent_all
-bash scripts/run_wsl_experiments.sh ablation_all
-bash scripts/run_wsl_experiments.sh hsta_flash_all
-bash scripts/run_wsl_experiments.sh efficiency
-```
-
-Summarize completed runs with:
-
-```bash
-python scripts/summarize_paper_main_results.py
-```
-
-The generated results remain local and are ignored by Git. Record the GPU model, CUDA version, PyTorch version, commit ID, and configuration file alongside any reported result.
+Every checkpoint records the class list, scaler, seed, exact model configuration, actual attention backend, and open-set metrics. The primary report should include macro-F1, known accuracy, unknown recall/F1, known-to-unknown false acceptance rate, parameter count, and runtime.

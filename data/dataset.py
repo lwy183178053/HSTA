@@ -6,14 +6,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
 
 
 META_COLS = {"flow_id", "label", "split", "pkt_index"}
 # Packet size, direction, and packet inter-arrival time features.
 DEFAULT_TRAFFIC_FEATURES = ["size", "direction", "delta_time"]
+UNKNOWN_LABEL_ALIASES = {"unknown", "_unknown", "__unknown__"}
 
 
 @dataclass
@@ -22,7 +22,21 @@ class SequenceData:
     y: np.ndarray
     splits: np.ndarray | None
     feature_cols: list[str]
-    label_encoder: LabelEncoder
+    label_encoder: "StableLabelEncoder"
+
+
+class StableLabelEncoder:
+    """Deterministic encoder with the reject class at the final index."""
+
+    def __init__(self, classes: list[str]):
+        self.classes_ = np.asarray(classes, dtype=str)
+        self._index = {name: index for index, name in enumerate(self.classes_)}
+
+    def transform(self, values):
+        return np.asarray([self._index[str(value)] for value in values], dtype=np.int64)
+
+    def inverse_transform(self, values):
+        return self.classes_[np.asarray(values, dtype=np.int64)]
 
 
 class TrafficSeqDataset(Dataset):
@@ -50,6 +64,7 @@ def load_sequence_csv(
     feature_cols: list[str] | None = None,
     label_col: str = "label",
     split_col: str = "split",
+    unknown_label: str = "unknown",
 ) -> SequenceData:
     """Load packet rows into fixed-length flow tensors.
 
@@ -82,17 +97,26 @@ def load_sequence_csv(
             if len(x) < seq_len:
                 x = np.pad(x, ((0, seq_len - len(x)), (0, 0)), mode="constant")
             flows.append(x)
-            labels.append(group[label_col].iloc[0])
+            label = str(group[label_col].iloc[0])
+            labels.append(unknown_label if label.strip().lower() in UNKNOWN_LABEL_ALIASES else label)
             if split_col in group.columns:
                 splits.append(str(group[split_col].iloc[0]).lower())
     else:
         flows = [row for row in df[feature_cols].to_numpy(dtype="float32")[:, None, :]]
-        labels = df[label_col].tolist()
+        labels = [
+            unknown_label if str(value).strip().lower() in UNKNOWN_LABEL_ALIASES else value
+            for value in df[label_col].tolist()
+        ]
         if split_col in df.columns:
             splits = [str(v).lower() for v in df[split_col].tolist()]
 
-    label_encoder = LabelEncoder()
-    y = label_encoder.fit_transform(np.asarray(labels))
+    # Keep the reject class at the final output index.  This makes checkpoints
+    # and reports stable when a new known application is inserted.
+    unique_labels = sorted({str(label) for label in labels if str(label) != str(unknown_label)})
+    if any(str(label) == str(unknown_label) for label in labels):
+        unique_labels.append(str(unknown_label))
+    label_encoder = StableLabelEncoder(unique_labels)
+    y = label_encoder.transform(np.asarray(labels, dtype=str))
     split_arr = np.asarray(splits) if splits else None
     return SequenceData(
         X=np.stack(flows).astype("float32"),
@@ -101,25 +125,6 @@ def load_sequence_csv(
         feature_cols=feature_cols,
         label_encoder=label_encoder,
     )
-
-
-def _stratified_split(X: np.ndarray, y: np.ndarray, test_size: float, val_size: float, seed: int):
-    X_train, X_tmp, y_train, y_tmp = train_test_split(
-        X,
-        y,
-        test_size=test_size + val_size,
-        stratify=y,
-        random_state=seed,
-    )
-    rel_test = test_size / (test_size + val_size)
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_tmp,
-        y_tmp,
-        test_size=rel_test,
-        stratify=y_tmp,
-        random_state=seed,
-    )
-    return X_train, y_train, X_val, y_val, X_test, y_test
 
 
 def _split_by_column(data: SequenceData):
@@ -159,11 +164,15 @@ def make_loaders(
     val_size: float = 0.1,
     seed: int = 42,
     num_workers: int = 0,
+    unknown_label: str = "unknown",
+    allow_random_split: bool = False,
 ):
-    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols)
+    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols, unknown_label=unknown_label)
     split = _split_by_column(data)
     if split is None:
-        split = _stratified_split(data.X, data.y, test_size=test_size, val_size=val_size, seed=seed)
+        if not allow_random_split:
+            raise ValueError("Processed CSV must contain non-empty train, val and test split columns")
+        raise ValueError("Random splitting is intentionally disabled for the temporal benchmark")
     X_train, y_train, X_val, y_val, X_test, y_test = split
     (X_train, X_val, X_test), scaler = _scale_from_train(X_train, X_val, X_test)
 
@@ -194,6 +203,11 @@ def make_loaders(
         "seq_len": int(data.X.shape[1]),
         "num_classes": int(len(data.label_encoder.classes_)),
         "classes": [str(c) for c in data.label_encoder.classes_],
+        "unknown_label": str(unknown_label),
+        "unknown_index": next(
+            (index for index, name in enumerate(data.label_encoder.classes_) if str(name) == str(unknown_label)),
+            None,
+        ),
         "feature_cols": data.feature_cols,
         "scaler": scaler,
     }

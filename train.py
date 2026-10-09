@@ -13,6 +13,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from tqdm import tqdm
 
 from data.dataset import make_loaders
+from data.open_set import open_set_metrics
 from models import build_model
 from utils import count_parameters, ensure_dir, save_json, seed_everything
 
@@ -28,10 +29,10 @@ def _grad_scaler(enabled: bool):
         return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
-def eval_model(model, loader, device, amp: bool = False):
+def eval_model(model, loader, device, amp: bool = False, unknown_index: int | None = None, classes=None):
     model.eval()
     criterion = nn.CrossEntropyLoss()
-    losses, y_true, y_pred = [], [], []
+    losses, y_true, y_pred, logits_all = [], [], [], []
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device)
@@ -42,16 +43,19 @@ def eval_model(model, loader, device, amp: bool = False):
             losses.append(float(loss.item()))
             y_true.extend(y.detach().cpu().numpy())
             y_pred.extend(logits.argmax(dim=1).detach().cpu().numpy())
+            logits_all.append(logits.detach().float().cpu().numpy())
     accuracy = accuracy_score(y_true, y_pred)
     precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
-    return (
-        {
+    metrics = {
             "loss": float(np.mean(losses)),
             "accuracy": float(accuracy),
             "macro_precision": float(precision),
             "macro_recall": float(recall),
             "macro_f1": float(f1),
-        },
+        }
+    metrics.update(open_set_metrics(y_true, y_pred, np.concatenate(logits_all), classes, unknown_index))
+    return (
+        metrics,
         np.asarray(y_true),
         np.asarray(y_pred),
     )
@@ -71,14 +75,12 @@ def _mean_or_nan(values):
 
 
 def _attention_runtime_metadata(model, cfg: dict, device: str, use_amp: bool) -> dict:
-    attention_modules = [
-        module for module in model.modules() if module.__class__.__name__ == "MultiHeadSelfAttention"
-    ]
-    requested = sorted({str(getattr(module, "attention_backend", "manual")) for module in attention_modules})
+    attention_modules = [module for module in model.modules() if module.__class__.__name__ == "FlashSelfAttention"]
+    requested = sorted({str(getattr(module, "attention_backend", "flash")) for module in attention_modules})
     actual = sorted({str(getattr(module, "actual_attention_backend", "uninitialized")) for module in attention_modules})
     model_cfg = cfg.get("model_cfg", {}) or {}
     return {
-        "requested_backend": str(model_cfg.get("attention_backend", "manual")),
+        "requested_backend": "flash",
         "module_requested_backends": requested,
         "actual_backends": actual,
         "flash_attention_enforced": any(
@@ -310,7 +312,10 @@ def train_one(cfg: dict):
             save_latest(epoch)
             break
 
-        val_metrics, _, _ = eval_model(model, loaders["val"], device, amp=use_amp)
+        val_metrics, _, _ = eval_model(
+            model, loaders["val"], device, amp=use_amp,
+            unknown_index=loaders.get("unknown_index"), classes=loaders.get("classes"),
+        )
         row = {
             "epoch": epoch,
             "lr": lr_before,
@@ -372,12 +377,24 @@ def train_one(cfg: dict):
     if not best_path.exists():
         raise RuntimeError(f"No valid checkpoint was saved for {cfg['exp_name']}. Check history.csv for non-finite losses.")
     model.load_state_dict(_load_state_dict(best_path, device))
-    test_metrics, y_true, y_pred = eval_model(model, loaders["test"], device, amp=use_amp)
-    report = classification_report(y_true, y_pred, target_names=loaders["classes"], zero_division=0, output_dict=True)
+    test_metrics, y_true, y_pred = eval_model(
+        model, loaders["test"], device, amp=use_amp,
+        unknown_index=loaders.get("unknown_index"), classes=loaders.get("classes"),
+    )
+    report = classification_report(
+        y_true,
+        y_pred,
+        labels=np.arange(len(loaders["classes"])),
+        target_names=loaders["classes"],
+        zero_division=0,
+        output_dict=True,
+    )
     model_cfg = cfg.get("model_cfg", {}) or {}
     base_layout = model_cfg.get("layout", [])
     block_repeats = int(model_cfg.get("block_repeats", 1))
     expanded_layout = base_layout * block_repeats if base_layout else []
+    if getattr(model, "layout", None):
+        expanded_layout = list(getattr(model, "layout"))
     attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
     result = {
         "exp_name": cfg["exp_name"],

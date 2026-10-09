@@ -45,7 +45,14 @@ def main():
     state = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
     model.load_state_dict(state)
     use_amp = bool(cfg.get("amp", True)) and str(device).startswith("cuda")
-    metrics, _, _ = eval_model(model, loaders[args.split], device, amp=use_amp)
+    metrics, _, _ = eval_model(
+        model,
+        loaders[args.split],
+        device,
+        amp=use_amp,
+        unknown_index=loaders.get("unknown_index"),
+        classes=loaders.get("classes"),
+    )
     payload = {"split": args.split, "metrics": metrics, "checkpoint": str(Path(args.checkpoint).resolve())}
     print(payload)
     if args.out:

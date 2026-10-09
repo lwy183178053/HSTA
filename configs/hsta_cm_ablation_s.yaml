@@ -1,0 +1,19 @@
+base:
+  output_dir: results/hsta_cm_ablation_s
+  seed: 42
+  epochs: 20
+  patience: 5
+  batch_size: 256
+  lr: 0.0005
+  weight_decay: 0.0001
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model: hsta
+  data_csv: data/processed/datazoo_quic100_s_seq30.csv
+  model_cfg: {dim: 128, depth: 2, heads: 4, dropout: 0.15, max_len: 30, conv_kernel_size: 3}
+
+experiments:
+  - {exp_name: hsta_full_quic22_s, model_cfg: {dim: 128, depth: 2}}
+  - {exp_name: hsta_shallow_temporal_quic22_s, model_cfg: {dim: 128, depth: 0}}
+  - {exp_name: hsta_narrow_quic22_s, model_cfg: {dim: 64, depth: 2}}

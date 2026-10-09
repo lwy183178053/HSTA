@@ -1,62 +1,13 @@
-# Model Architecture
+# HSTA-CM
 
-## Unified input
+HSTA-CM consumes the first 30 packets of each flow as a `[B, 30, 3]` tensor: packet size, direction, and inter-arrival time.
 
-The data pipeline converts each encrypted flow into `[B, 30, 3]`:
+1. Three native PyTorch `Conv1d` layers encode local packet-position structure and add a projected residual from the input.
+2. Two `mamba_ssm` Mamba blocks encode ordered temporal dependencies and add a residual from the temporal embedding.
+3. Concatenated streams pass through a fully connected fusion layer and a sigmoid gate.
+4. One `FlashSelfAttention` block calls PyTorch scaled dot-product attention with the Flash backend only. CPU, FP32, math, and memory-efficient fallbacks are rejected.
+5. Layer normalization, mean pooling, and a 101-way head produce the 100 known classes plus `unknown`.
 
-```text
-packet size | transmission direction | inter-arrival time
-```
+The open-set protocol maps held-out DataZoo applications and deterministic synthetic noise flows to `unknown`. The label encoder always keeps this class at index 100. Training, validation, and testing are disjoint date windows.
 
-- `data/preprocess.py` creates task-specific CSV files from DataZoo-compatible source data.
-- `data/dataset.py` reconstructs packet rows into fixed-length flow tensors, fits the scaler on training data, and creates data loaders.
-- `data/sampler.py` handles dataset initialization, temporal splits, class selection, and feature extraction.
-
-Splits are flow-level and time-aware so packets from one flow cannot appear in multiple sets.
-
-## HSTA
-
-`models/hsta.py` implements the main architecture:
-
-```text
-[B,30,3]
-  -> Linear(3,128) + positional encoding
-  -> Mamba block
-  -> Mamba block
-  -> Transition FFN: 128 -> 512 -> 128
-  -> four-head self-attention
-  -> Refinement FFN: 128 -> 512 -> 128
-  -> LayerNorm + mean pooling
-  -> Linear(128, number of classes)
-```
-
-Every sequence sublayer preserves `[B, 30, 128]`. Mamba blocks use pre-normalization, selective state-space mixing, dropout, and residual addition. FFN and attention blocks use the same pre-normalized residual pattern.
-
-The final configuration uses PyTorch scaled dot-product attention with the FlashAttention CUDA backend. This is an implementation backend for the exact attention operation; it does not change the model definition.
-
-## Comparison models
-
-```text
-models/gru.py                      GRU baseline
-models/transformer.py              Transformer baseline and attention blocks
-models/adapted_sota.py             30pktTCNET and NetMamba adaptations
-models/recent_journal_baselines.py SRViT, TrafficAudio, and BPF-GNN
-```
-
-All models share the same training, evaluation, input length, and feature constraints.
-
-## Execution flow
-
-```text
-configs/*.yaml
-       |
-       v
-run_experiments.py -> train.py -> data.dataset + models.build_model
-       |                              |
-       v                              v
-results/<group>/<run>/          best.pt / latest.pt / metrics.json
-       |
-       +-> evaluate.py
-       +-> benchmark_efficiency.py
-       +-> scripts/summarize_paper_main_results.py
-```
+The comparison set is deliberately small: 30pktTCNET-adapted and NetMamba-adapted are the shared-input reference methods; SRViT, TrafficAudio, and BPF-GNN are the three retained recent baselines requested for the paper revision. GRU and the standalone Transformer are removed from the registry.

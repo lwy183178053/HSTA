@@ -46,7 +46,7 @@ def _merge_experiment(base: dict, exp: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Run the closed-set experiments used by Revision 10.")
-    parser.add_argument("--config", default="configs/tls40_s.yaml")
+    parser.add_argument("--config", default="configs/compact_s.yaml")
     parser.add_argument("--resume", dest="resume", action="store_true", default=True)
     parser.add_argument("--no-resume", dest="resume", action="store_false")
     parser.add_argument("--force", action="store_true", help="Rerun experiments even when results exist.")

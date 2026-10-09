@@ -6,4 +6,4 @@ PyYAML
 tqdm
 cesnet-datazoo
 h5py
-mamba-ssm
+mamba-ssm>=2.3.2

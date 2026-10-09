@@ -30,21 +30,15 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && sour
 
 ## Experiment groups
 
-- Main tasks: `results/tls40_s`, `results/quic40_s`, `results/tls60_s`, `results/quic60_s`
-- Adapted methods: `results/sota_adapted`
-- HSTA ablations: `results/hsta_no_attention`, `results/hsta_flash_ablation`
-- Recent baselines: `results/recent_journal_baselines`
-- HSTA main experiments: `results/hsta_flash`
+- Compact open-set comparison: `results/compact_s`
+- HSTA-CM component checks: `results/hsta_cm_ablation_s`
 - Efficiency tests: `results/efficiency_benchmark`
 
 ## Common entry points
 
 ```bash
-bash scripts/run_wsl_experiments.sh main_all
-bash scripts/run_wsl_experiments.sh sota_all
-bash scripts/run_wsl_experiments.sh recent_all
-bash scripts/run_wsl_experiments.sh ablation_all
-bash scripts/run_wsl_experiments.sh hsta_flash_all
+bash scripts/run_wsl_experiments.sh main
+bash scripts/run_wsl_experiments.sh ablation
 bash scripts/run_wsl_experiments.sh efficiency
 ```
 

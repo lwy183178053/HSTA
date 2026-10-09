@@ -1,11 +1,6 @@
 import torch
 import torch.nn as nn
 
-try:
-    from mamba_ssm import Mamba as OfficialMamba
-except Exception:
-    OfficialMamba = None
-
 
 class MambaBlock(nn.Module):
     """Official mamba-ssm block with LayerNorm, residual, and dropout."""
@@ -19,11 +14,8 @@ class MambaBlock(nn.Module):
         dropout: float = 0.1,
     ):
         super().__init__()
-        if OfficialMamba is None:
-            raise ImportError(
-                "mamba-ssm is required for Mamba models. "
-                "Install it in WSL/Linux CUDA, for example: pip install mamba-ssm"
-            )
+        from mamba_ssm import Mamba as OfficialMamba
+
         self.norm = nn.LayerNorm(dim)
         self.mixer = OfficialMamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
         self.drop = nn.Dropout(dropout)

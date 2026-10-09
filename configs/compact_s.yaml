@@ -1,0 +1,49 @@
+base:
+  output_dir: results/compact_s
+  seed: 42
+  epochs: 30
+  patience: 8
+  batch_size: 256
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_macro_f1
+  lr_factor: 0.5
+  lr_patience: 2
+  min_lr: 0.000001
+  early_stop_metric: val_macro_f1
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  model_cfg:
+    dim: 128
+    depth: 2
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    pooling: mean
+    max_len: 30
+    conv_kernel_size: 3
+    attention_backend: flash
+
+experiments:
+  - {exp_name: hsta_tls22_s_seed42, model: hsta, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: hsta_tls22_s_seed2025, model: hsta, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 2025}
+  - {exp_name: hsta_tls22_s_seed3407, model: hsta, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 3407}
+  - {exp_name: tcnet_tls22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: netmamba_tls22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: srvit_tls22_s, model: srvit, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: trafficaudio_tls22_s, model: trafficaudio, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: bpfgnn_tls22_s, model: bpf-gnn, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 42}
+  - {exp_name: hsta_quic22_s_seed42, model: hsta, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}
+  - {exp_name: hsta_quic22_s_seed2025, model: hsta, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 2025}
+  - {exp_name: hsta_quic22_s_seed3407, model: hsta, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 3407}
+  - {exp_name: tcnet_quic22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}
+  - {exp_name: netmamba_quic22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}
+  - {exp_name: srvit_quic22_s, model: srvit, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}
+  - {exp_name: trafficaudio_quic22_s, model: trafficaudio, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}
+  - {exp_name: bpfgnn_quic22_s, model: bpf-gnn, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 42}

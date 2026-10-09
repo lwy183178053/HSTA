@@ -18,11 +18,38 @@ SERVICE_COLUMNS = {
 SPLITS = ("train", "val", "test")
 
 
+def _project_path(path: str | Path, project_root: str | Path) -> str:
+    """Store portable project-relative paths in generated reports."""
+    path = Path(path).resolve()
+    root = Path(project_root).resolve()
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _imports():
-    from cesnet_datazoo.config import AppSelection, DatasetConfig
+    from cesnet_datazoo.config import AppSelection, DatasetConfig, ValidationApproach
     from cesnet_datazoo.datasets import CESNET_QUIC22, CESNET_TLS22
 
-    return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection
+    return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach
+
+
+# The dates are disjoint and ordered.  This keeps validation genuinely
+# forward-looking instead of drawing it randomly from the training week.
+TEMPORAL_DATE_SPLITS = {
+    "tls": {
+        "train": ["20211004", "20211005", "20211006", "20211007", "20211008", "20211009"],
+        "val": ["20211010"],
+        "test": ["20211011", "20211012", "20211013", "20211014", "20211015", "20211016", "20211017"],
+    },
+    "quic": {
+        "train": ["20221031", "20221101", "20221102", "20221103", "20221104", "20221105"],
+        "val": ["20221106"],
+        "test": ["20221107", "20221108", "20221109", "20221110", "20221111", "20221112", "20221113"],
+    },
+}
+UNKNOWN_LABEL = "unknown"
 
 
 def _to_np(x):
@@ -51,6 +78,16 @@ def decode_label(x, dataset=None) -> str:
         index = int(float(value))
     except Exception:
         return value
+    # DataZoo stores encoded labels in the fourth batch field.  Its encoder
+    # lives under class_info rather than on the dataset object itself.
+    class_info = getattr(dataset, "class_info", None)
+    if class_info is not None:
+        unknown_index = getattr(class_info, "unknown_class_label", None)
+        target_names = getattr(class_info, "target_names", None)
+        if unknown_index is not None and index == int(unknown_index):
+            return UNKNOWN_LABEL
+        if target_names is not None and 0 <= index < len(target_names):
+            return str(target_names[index])
     for attr in [
         "label_to_name",
         "idx_to_label",
@@ -281,6 +318,9 @@ def enrich_processed_report(
 
     dataset_name = _infer_dataset_name(csv_path, report)
     size = _infer_size(csv_path, report)
+    dataset_root = Path(project_root).resolve() / "data" / "raw" / (
+        "cesnet_tls22_datazoo" if dataset_name == "tls" else "cesnet_quic22_datazoo"
+    )
     counts = scan_processed_csv_counts(csv_path)
     servicemap_path = infer_servicemap_path(dataset_name, size=size, project_root=project_root)
     service_by_id = load_servicemap(servicemap_path)
@@ -295,8 +335,9 @@ def enrich_processed_report(
         {
             "dataset": dataset_name or report.get("dataset", ""),
             "size": size,
-            "out_csv": str(csv_path.resolve()),
-            "servicemap_path": str(servicemap_path.resolve()) if servicemap_path else "",
+            "dataset_root": _project_path(dataset_root, project_root),
+            "out_csv": _project_path(csv_path, project_root),
+            "servicemap_path": _project_path(servicemap_path, project_root) if servicemap_path else "",
             "flow_count_by_split": _split_counter_dict(counts["flow_count_by_split"]),
             "packet_row_count_by_split": _split_counter_dict(counts["packet_row_count_by_split"]),
             "packet_rows": counts["packet_rows"],
@@ -321,50 +362,88 @@ def build_dataset(
     batch_size: int = 64,
     test_batch_size: int = 64,
     workers: int = 0,
+    known_topk: int | None = 100,
+    unknown_count: int = 5,
+    temporal_split: bool = True,
 ):
-    CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection = _imports()
+    CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach = _imports()
     root = Path(project_root).resolve()
     size = size.upper()
     if name == "tls":
         dataset_root = root / "data" / "raw" / "cesnet_tls22_datazoo"
-        dataset = CESNET_TLS22(str(dataset_root), size=size)
-        cfg = DatasetConfig(
-            dataset=dataset,
-            apps_selection=AppSelection.ALL_KNOWN,
-            train_period_name="W-2021-40",
-            test_period_name="W-2021-41",
-            train_size=train_size,
-            val_known_size=val_size,
-            test_known_size=test_size,
-            val_unknown_size=0,
-            test_unknown_size=0,
-            batch_size=batch_size,
-            test_batch_size=test_batch_size,
-            train_workers=workers,
-            val_workers=workers,
-            test_workers=workers,
-        )
+        dataset_cls = CESNET_TLS22
     elif name == "quic":
         dataset_root = root / "data" / "raw" / "cesnet_quic22_datazoo"
-        dataset = CESNET_QUIC22(str(dataset_root), size=size)
-        cfg = DatasetConfig(
+        dataset_cls = CESNET_QUIC22
+    else:
+        raise ValueError(f"Unknown dataset: {name}")
+
+    dataset = dataset_cls(str(dataset_root), size=size)
+    dates = TEMPORAL_DATE_SPLITS[name]
+    train_dates = dates["train"] if temporal_split else []
+    val_dates = dates["val"] if temporal_split else []
+    test_dates = dates["test"] if temporal_split else []
+    # DataZoo exposes one train week and one immediately following test week.
+    # Reserve the final day of the train week for validation so no flow is
+    # shared across the three temporal windows.
+    train_period = dataset.default_train_period_name
+    test_period = dataset.default_test_period_name
+
+    def config_for(dataset, selection, **selection_kwargs):
+        common = dict(
             dataset=dataset,
-            apps_selection=AppSelection.ALL_KNOWN,
-            train_period_name="W-2022-44",
-            test_period_name="W-2022-45",
+            apps_selection=selection,
+            train_period_name=train_period,
+            val_period_name=train_period,
+            test_period_name=test_period,
+            train_dates=train_dates,
+            val_dates=val_dates,
+            test_dates=test_dates,
+            val_approach=ValidationApproach.VALIDATION_DATES if temporal_split else ValidationApproach.SPLIT_FROM_TRAIN,
             train_size=train_size,
             val_known_size=val_size,
             test_known_size=test_size,
-            val_unknown_size=0,
-            test_unknown_size=0,
+            # DataZoo emits these as the open-world class.  We retain them in
+            # val/test and add a small synthetic unknown set during export.
+            val_unknown_size=val_size,
+            test_unknown_size=test_size,
             batch_size=batch_size,
             test_batch_size=test_batch_size,
             train_workers=workers,
             val_workers=workers,
             test_workers=workers,
+            random_state=420,
+            **selection_kwargs,
         )
+        if not temporal_split:
+            common.pop("train_dates")
+            common.pop("val_dates")
+            common.pop("test_dates")
+        return DatasetConfig(**common)
+
+    # First let DataZoo rank applications by actual training frequency.  A
+    # second fixed configuration limits the open-world arm to only a few
+    # explicit unknown applications; every other class is excluded.
+    if known_topk and unknown_count > 0:
+        probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
+        dataset.set_dataset_config_and_initialize(probe_cfg)
+        known_apps = [str(x) for x in dataset.class_info.known_apps]
+        unknown_apps = [str(x) for x in dataset.class_info.unknown_apps[: int(unknown_count)]]
+        if not unknown_apps:
+            raise RuntimeError(f"No unknown applications available for {name} {size}")
+        # Recreate the object so the generated index cache reflects the final
+        # fixed known/unknown class list rather than the probe configuration.
+        dataset = dataset_cls(str(dataset_root), size=size)
+        cfg = config_for(
+            dataset,
+            AppSelection.FIXED,
+            apps_selection_fixed_known=known_apps,
+            apps_selection_fixed_unknown=unknown_apps,
+        )
+    elif known_topk:
+        cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
     else:
-        raise ValueError(f"Unknown dataset: {name}")
+        cfg = config_for(dataset, AppSelection.ALL_KNOWN)
     dataset.set_dataset_config_and_initialize(cfg)
     return dataset, dataset_root
 
@@ -444,10 +523,14 @@ def export_csv(
     classes: list[str],
     seq_len: int,
     max_per_class_by_split: dict[str, int | None] | None = None,
+    include_unknown: bool = True,
+    max_batches_per_split: int | None = None,
 ):
     out_csv = Path(out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     selected = set(classes)
+    if include_unknown:
+        selected.add(UNKNOWN_LABEL)
     split_counts = {split: Counter() for split in ["train", "val", "test"]}
     packet_row_counts = {split: Counter() for split in ["train", "val", "test"]}
     split_caps = {"train": None, "val": None, "test": None}
@@ -456,13 +539,13 @@ def export_csv(
     with out_csv.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split"],
+            fieldnames=["flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source"],
         )
         writer.writeheader()
         for split in ["train", "val", "test"]:
             split_cap = split_caps.get(split)
             flow_index = 0
-            for batch in tqdm(get_loader(dataset, split), desc=f"export {split}"):
+            for batch_index, batch in enumerate(tqdm(get_loader(dataset, split), desc=f"export {split}")):
                 for ppi_one, label_raw in iter_batch(batch):
                     label = decode_label(label_raw, dataset)
                     if label not in selected:
@@ -485,33 +568,132 @@ def export_csv(
                                 "direction": float(dirs[pkt_index]) if pkt_index < len(dirs) else 1.0,
                                 "delta_time": float(times[pkt_index]) if pkt_index < len(times) else 0.0,
                                 "split": split,
+                                "source": "datazoo",
                             }
                         )
                         packet_rows += 1
                         packet_row_counts[split][label] += 1
-                if split_cap and all(split_counts[split][c] >= split_cap for c in classes):
+                cap_labels = list(classes)
+                if include_unknown and split != "train":
+                    cap_labels.append(UNKNOWN_LABEL)
+                if split_cap and all(split_counts[split][c] >= split_cap for c in cap_labels):
+                    break
+                if max_batches_per_split and batch_index + 1 >= max_batches_per_split:
                     break
     return split_counts, packet_rows, packet_row_counts
 
 
-def export_datazoo_8class(
+def append_synthetic_unknown(
+    csv_path: str | Path,
+    seq_len: int = 30,
+    noise_per_split: dict[str, int] | None = None,
+    noise_ratio: float = 0.05,
+    seed: int = 42,
+) -> dict[str, int]:
+    """Append deterministic synthetic unknown flows to an exported CSV.
+
+    The generated packets are sampled from robust train statistics and then
+    independently perturbed.  They are deliberately tagged with a string
+    ``source`` column so they cannot be confused with held-out DataZoo
+    unknown applications during reporting.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(csv_path)
+    noise_per_split = dict(noise_per_split or {})
+    rng = np.random.default_rng(seed)
+    rows_by_split = Counter()
+    reservoir: list[tuple[float, float, float]] = []
+    reservoir_limit = 10000
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise ValueError(f"{csv_path} has no CSV header")
+        for row_index, row in enumerate(reader):
+            split = str(row.get("split", "")).lower()
+            if split == "train":
+                try:
+                    item = (float(row["size"]), float(row["direction"]), float(row["delta_time"]))
+                    if len(reservoir) < reservoir_limit:
+                        reservoir.append(item)
+                    else:
+                        replacement = int(rng.integers(0, row_index + 1))
+                        if replacement < reservoir_limit:
+                            reservoir[replacement] = item
+                except (KeyError, TypeError, ValueError):
+                    continue
+            rows_by_split[split] += 1
+    if not reservoir:
+        raise ValueError(f"No valid train rows found in {csv_path}")
+    train_arr = np.asarray(reservoir, dtype=np.float32)
+    center = np.nanmedian(train_arr, axis=0)
+    scale = np.nanpercentile(train_arr, 75, axis=0) - np.nanpercentile(train_arr, 25, axis=0)
+    scale = np.maximum(np.nan_to_num(scale, nan=1.0), 1e-3)
+    direction_values = np.unique(train_arr[:, 1])
+    if direction_values.size == 0:
+        direction_values = np.asarray([0.0, 1.0], dtype=np.float32)
+
+    default_counts = {
+        split: int(round(rows_by_split.get(split, 0) / max(seq_len, 1) * noise_ratio))
+        for split in ("train", "val", "test")
+    }
+    counts = {split: int(noise_per_split.get(split, default_counts[split])) for split in ("train", "val", "test")}
+    # Appending is safe because export_csv writes a stable header.  Retain
+    # compatibility with older CSVs by only writing columns present in them.
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        fieldnames = list(csv.DictReader(handle).fieldnames or [])
+    if not fieldnames:
+        raise ValueError(f"{csv_path} has no CSV header")
+    with csv_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        for split in ("train", "val", "test"):
+            for flow_index in range(counts[split]):
+                flow_id = f"synthetic_{split}_{flow_index}"
+                # Larger perturbations generate a broad unknown support while
+                # keeping values in physically meaningful packet ranges.
+                flow = rng.normal(center, scale * 2.5, size=(seq_len, 3)).astype(np.float32)
+                flow[:, 0] = np.clip(np.abs(flow[:, 0]), 0.0, 2**16 - 1)
+                flow[:, 1] = rng.choice(direction_values, size=seq_len)
+                flow[:, 2] = np.clip(np.abs(flow[:, 2]), 0.0, None)
+                for pkt_index, (size, direction, delta_time) in enumerate(flow):
+                    writer.writerow(
+                        {
+                            "flow_id": flow_id,
+                            "label": UNKNOWN_LABEL,
+                            "pkt_index": pkt_index,
+                            "size": float(size),
+                            "direction": float(direction),
+                            "delta_time": float(delta_time),
+                            "split": split,
+                            "source": "synthetic_noise",
+                        }
+                    )
+    return counts
+
+
+def export_datazoo_open_set(
     dataset_name: str,
     size: str,
     project_root: str | Path,
     out_csv: str | Path | None = None,
     seq_len: int = 30,
-    topk: int = 8,
+    topk: int = 100,
     classes: list[str] | None = None,
     scan_batches: int = 300,
     max_train_per_class: int | None = 10000,
     max_val_per_class: int | None = 2000,
     max_test_per_class: int | None = 2000,
-    init_train_size: int | str = 500000,
-    init_val_size: int | str = 200000,
-    init_test_size: int | str = 200000,
+    init_train_size: int | str = "all",
+    init_val_size: int | str = "all",
+    init_test_size: int | str = "all",
     datazoo_batch_size: int = 64,
     datazoo_test_batch_size: int = 64,
     datazoo_workers: int = 0,
+    unknown_count: int = 5,
+    noise_ratio: float = 0.05,
+    noise_seed: int = 42,
+    temporal_split: bool = True,
+    max_export_batches: int | None = None,
 ):
     dataset_name = dataset_name.lower()
     size = size.upper()
@@ -526,11 +708,17 @@ def export_datazoo_8class(
         batch_size=datazoo_batch_size,
         test_batch_size=datazoo_test_batch_size,
         workers=datazoo_workers,
+        known_topk=topk,
+        unknown_count=unknown_count,
+        temporal_split=temporal_split,
     )
     if out_csv is None:
         out_csv = root / "data" / "processed" / f"datazoo_{dataset_name}{topk}_{size.lower()}_seq{seq_len}.csv"
     if classes is None:
-        classes, scan_counter = scan_classes(dataset, topk=topk, scan_batches=scan_batches)
+        classes = [str(x) for x in getattr(dataset.class_info, "known_apps", [])]
+        scan_counter = Counter()
+        if not classes:
+            classes, scan_counter = scan_classes(dataset, topk=topk, scan_batches=scan_batches)
     else:
         classes = [str(x) for x in classes]
         scan_counter = Counter()
@@ -545,11 +733,24 @@ def export_datazoo_8class(
             "val": max_val_per_class,
             "test": max_test_per_class,
         },
+        include_unknown=bool(unknown_count > 0),
+        max_batches_per_split=max_export_batches,
     )
+    noise_counts = append_synthetic_unknown(
+        out_csv,
+        seq_len=seq_len,
+        noise_ratio=noise_ratio,
+        seed=noise_seed,
+    )
+    for split, flow_count in noise_counts.items():
+        counts.setdefault(split, Counter())[UNKNOWN_LABEL] += int(flow_count)
+        packet_row_counts.setdefault(split, Counter())[UNKNOWN_LABEL] += int(flow_count) * int(seq_len)
+        packet_rows += int(flow_count) * int(seq_len)
+    report_classes = list(classes) + ([UNKNOWN_LABEL] if unknown_count > 0 else [])
     servicemap_path = infer_servicemap_path(dataset_name, size=size, project_root=root)
     service_by_id = load_servicemap(servicemap_path)
     class_summary, class_count_summary = build_class_report(
-        classes,
+        report_classes,
         counts,
         packet_row_counts,
         service_by_id=service_by_id,
@@ -557,11 +758,15 @@ def export_datazoo_8class(
     report = {
         "dataset": dataset_name,
         "size": size,
-        "dataset_root": str(dataset_root),
-        "out_csv": str(Path(out_csv).resolve()),
-        "servicemap_path": str(servicemap_path.resolve()) if servicemap_path else "",
+        "dataset_root": _project_path(dataset_root, root),
+        "out_csv": _project_path(out_csv, root),
+        "servicemap_path": _project_path(servicemap_path, root) if servicemap_path else "",
         "seq_len": seq_len,
-        "classes": classes,
+        "classes": report_classes,
+        "unknown_label": UNKNOWN_LABEL if unknown_count > 0 else "",
+        "unknown_apps": [str(x) for x in getattr(dataset.class_info, "unknown_apps", [])],
+        "synthetic_noise_flows_by_split": noise_counts,
+        "temporal_split": bool(temporal_split),
         "scan_counter_top30": dict(scan_counter.most_common(30)),
         "flow_count_by_split": _split_counter_dict(counts),
         "packet_row_count_by_split": _split_counter_dict(packet_row_counts),
@@ -577,6 +782,8 @@ def export_datazoo_8class(
         "datazoo_batch_size": datazoo_batch_size,
         "datazoo_test_batch_size": datazoo_test_batch_size,
         "datazoo_workers": datazoo_workers,
+        "unknown_count": int(unknown_count),
+        "noise_ratio": float(noise_ratio),
     }
     report_path = Path(out_csv).with_suffix(".report.json")
     with report_path.open("w", encoding="utf-8") as handle:

@@ -20,29 +20,20 @@ from utils import count_parameters, deep_merge, ensure_dir, save_json, seed_ever
 
 
 DEFAULT_CONFIGS = [
-    "configs/tls40_s.yaml",
-    "configs/quic40_s.yaml",
-    "configs/tls60_s.yaml",
-    "configs/quic60_s.yaml",
-    "configs/sota_adapted.yaml",
-    "configs/recent_journal_baselines.yaml",
-    "configs/hsta_flash.yaml",
+    "configs/compact_s.yaml",
 ]
 
 # Standalone Mamba baseline is intentionally excluded; NetMamba-adapted covers
 # the Mamba-only comparison in the final experiment set.
 CORE_MODELS = {
-    "gru",
-    "transformer",
-    "hybrid",
     "hsta",
-    "30pktTCNET-adapted",
-    "NetMamba-adapted",
+    "30pkttcnet-adapted",
+    "netmamba-adapted",
     "srvit",
     "trafficaudio",
     "bpf_gnn",
 }
-TASK_NAMES = ("tls40_s", "quic40_s", "tls60_s", "quic60_s")
+TASK_NAMES = ("tls22_s", "quic22_s")
 
 REPEATED_METRICS = [
     "latency_ms_mean",

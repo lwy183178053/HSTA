@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .flash_attention import FlashSelfAttention
+
 
 class RelativePositionSelfAttention(nn.Module):
     def __init__(self, dim: int, heads: int, max_len: int, dropout: float):
@@ -15,28 +17,13 @@ class RelativePositionSelfAttention(nn.Module):
         self.heads = heads
         self.head_dim = dim // heads
         self.max_len = max_len
-        self.qkv = nn.Linear(dim, 3 * dim)
-        self.out_proj = nn.Linear(dim, dim)
-        self.attn_drop = nn.Dropout(dropout)
-        self.proj_drop = nn.Dropout(dropout)
-        self.relative_position_bias = nn.Parameter(torch.zeros(heads, 2 * max_len - 1))
-        positions = torch.arange(max_len)
-        relative_index = positions[:, None] - positions[None, :] + max_len - 1
-        self.register_buffer("relative_index", relative_index, persistent=False)
-        nn.init.trunc_normal_(self.relative_position_bias, std=0.02)
+        self.flash = FlashSelfAttention(dim, heads=heads, dropout=dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch, seq_len, dim = x.shape
+        _, seq_len, _ = x.shape
         if seq_len > self.max_len:
             raise ValueError(f"seq_len={seq_len} exceeds max_len={self.max_len}")
-        qkv = self.qkv(x).view(batch, seq_len, 3, self.heads, self.head_dim)
-        q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
-        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        index = self.relative_index[:seq_len, :seq_len]
-        scores = scores + self.relative_position_bias[:, index].unsqueeze(0)
-        weights = self.attn_drop(scores.softmax(dim=-1))
-        y = (weights @ v).transpose(1, 2).contiguous().view(batch, seq_len, dim)
-        return self.proj_drop(self.out_proj(y))
+        return self.flash(x)
 
 
 class SRViTBlock(nn.Module):

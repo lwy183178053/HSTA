@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.idea/
 
 # Local experiment outputs.
 results/
@@ -24,6 +25,3 @@ data/**
 *.h5
 *.npz
 *.zip
-
-# Manuscript and submission materials live in the sibling private repository.
-/paper/

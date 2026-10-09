@@ -1,97 +1,85 @@
-import torch
-import torch.nn as nn
+"""HSTA-CM: Conv1d spatial encoder, Mamba temporal encoder and FlashAttention."""
 
+from __future__ import annotations
+
+import torch
+from torch import nn
+
+from .flash_attention import FlashAttentionBlock
 from .mamba_model import MambaBlock
-from .transformer import AttentionBlock, FeedForwardBlock
 
 
 class HSTA(nn.Module):
-    """HSTA with configurable attention placement for controlled ablations.
+    """Open-set classifier for fixed 30-packet, three-feature flows."""
 
-    The canonical layout is Mamba -> Mamba -> Transition FFN -> Attention ->
-    Refinement FFN. Ablation configs change only the order or replace the
-    attention block with another FFN.
-    """
+    layout = ("conv1d_x3_residual", "mamba_x2_residual", "fusion_fc", "flash_attention", "norm_head")
+
     def __init__(
         self,
         input_dim: int,
         num_classes: int,
         dim: int = 128,
-        layout: list[str] | None = None,
+        depth: int = 2,
         heads: int = 4,
         mlp_ratio: int = 4,
         dropout: float = 0.1,
         d_state: int = 16,
         d_conv: int = 4,
         expand: int = 2,
-        max_len: int = 256,
+        max_len: int = 30,
         pooling: str = "mean",
-        block_repeats: int = 1,
-        attention_backend: str = "manual",
+        conv_kernel_size: int = 3,
     ):
         super().__init__()
-        if block_repeats < 1:
-            raise ValueError("block_repeats must be >= 1")
-        self.max_len = max_len
+        if input_dim <= 0 or num_classes <= 0:
+            raise ValueError("input_dim and num_classes must be positive")
+        if conv_kernel_size % 2 != 1:
+            raise ValueError("conv_kernel_size must be odd")
+        if pooling not in {"mean", "last"}:
+            raise ValueError("pooling must be mean or last")
+        self.max_len = int(max_len)
         self.pooling = pooling
-        self.base_layout = layout or ["mamba", "mamba", "mlp", "attention", "mlp"]
-        self.block_repeats = int(block_repeats)
-        self.layout = self.base_layout * self.block_repeats
-        self.embed = nn.Linear(input_dim, dim)
-        self.pos = nn.Parameter(torch.zeros(1, max_len, dim))
-        self.blocks = nn.ModuleList(
-            [
-                self._make_block(
-                    name,
-                    dim=dim,
-                    heads=heads,
-                    mlp_ratio=mlp_ratio,
-                    dropout=dropout,
-                    d_state=d_state,
-                    d_conv=d_conv,
-                    expand=expand,
-                    attention_backend=attention_backend,
-                )
-                for name in self.layout
-            ]
+        self.spatial = nn.Sequential(
+            nn.Conv1d(input_dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
+            nn.BatchNorm1d(dim), nn.GELU(), nn.Dropout(dropout),
+            nn.Conv1d(dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
+            nn.BatchNorm1d(dim), nn.GELU(), nn.Dropout(dropout),
+            nn.Conv1d(dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
+            nn.GELU(),
         )
+        self.spatial_residual = nn.Conv1d(input_dim, dim, kernel_size=1)
+        self.temporal_embed = nn.Linear(input_dim, dim)
+        self.temporal = nn.ModuleList(
+            [MambaBlock(dim, d_state=d_state, d_conv=d_conv, expand=expand, dropout=dropout) for _ in range(depth)]
+        )
+        self.temporal_residual = nn.Identity()
+        self.fusion_fc = nn.Sequential(nn.Linear(dim * 2, dim), nn.GELU(), nn.Dropout(dropout))
+        self.gate = nn.Sequential(nn.Linear(dim * 2, dim), nn.Sigmoid())
+        self.position = nn.Parameter(torch.zeros(1, self.max_len, dim))
+        self.attention = FlashAttentionBlock(dim, heads=heads, mlp_ratio=mlp_ratio, dropout=dropout)
         self.norm = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, num_classes)
-        nn.init.normal_(self.pos, std=0.02)
-
-    @staticmethod
-    def _make_block(name: str, **kwargs) -> nn.Module:
-        name = name.lower()
-        if name in {"mamba", "ssm"}:
-            return MambaBlock(
-                dim=kwargs["dim"],
-                d_state=kwargs["d_state"],
-                d_conv=kwargs["d_conv"],
-                expand=kwargs["expand"],
-                dropout=kwargs["dropout"],
-            )
-        if name in {"attention", "attn"}:
-            return AttentionBlock(
-                kwargs["dim"],
-                heads=kwargs["heads"],
-                dropout=kwargs["dropout"],
-                attention_backend=kwargs["attention_backend"],
-            )
-        if name in {"mlp", "ffn"}:
-            return FeedForwardBlock(
-                kwargs["dim"],
-                mlp_ratio=kwargs["mlp_ratio"],
-                dropout=kwargs["dropout"],
-            )
-        raise ValueError(f"Unknown HSTA block: {name}")
+        nn.init.normal_(self.position, std=0.02)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 3:
+            raise ValueError(f"expected [batch, sequence, feature], got {tuple(x.shape)}")
         _, seq_len, _ = x.shape
         if seq_len > self.max_len:
             raise ValueError(f"seq_len={seq_len} exceeds max_len={self.max_len}")
-        x = self.embed(x) + self.pos[:, :seq_len]
-        for block in self.blocks:
-            x = block(x)
-        x = self.norm(x)
-        feat = x[:, -1] if self.pooling == "last" else x.mean(dim=1)
-        return self.head(feat)
+        x_channels = x.transpose(1, 2)
+        spatial = self.spatial(x_channels) + self.spatial_residual(x_channels)
+        spatial = spatial.transpose(1, 2)
+        temporal_input = self.temporal_embed(x) + self.position[:, :seq_len]
+        temporal = temporal_input
+        for block in self.temporal:
+            temporal = block(temporal)
+        temporal = temporal + self.temporal_residual(temporal_input)
+        joined = torch.cat([spatial, temporal], dim=-1)
+        gate = self.gate(joined)
+        fused = self.fusion_fc(joined)
+        fused = fused + gate * temporal + (1.0 - gate) * spatial
+        fused = self.attention(fused)
+        fused = self.norm(fused)
+        pooled = fused[:, -1] if self.pooling == "last" else fused.mean(dim=1)
+        return self.head(pooled)

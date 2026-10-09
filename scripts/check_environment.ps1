@@ -58,7 +58,7 @@ if ($SetDefaultWsl) {
     & wsl --set-default $PreferredWslDistro 2>$null
 }
 
-$distros = @('Ubuntu-22.04', 'traffic-ubuntu-22.04', 'docker-desktop')
+$distros = @($PreferredWslDistro)
 foreach ($distro in $distros) {
     Write-Section "WSL Distro: $distro"
     & wsl -d $distro -- printenv WSL_DISTRO_NAME 2>$null
@@ -90,7 +90,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Section "Recommended Commands"
 Write-Host "Windows Python:"
-Write-Host "& '$WindowsPython' run_experiments.py --config configs\tls40_s.yaml --resume"
+Write-Host "& '$WindowsPython' run_experiments.py --config configs\compact_s.yaml --resume"
 Write-Host ""
 Write-Host "WSL Mamba/CUDA:"
-Write-Host "wsl -d $PreferredWslDistro -- bash -lc `"cd $wslRepoRoot && source /opt/traffic-mamba-venv/bin/activate && python run_experiments.py --config configs/tls40_s.yaml --resume`""
+Write-Host "wsl -d $PreferredWslDistro -- bash -lc `"cd $wslRepoRoot && source /opt/traffic-mamba-venv/bin/activate && python run_experiments.py --config configs/compact_s.yaml --resume`""

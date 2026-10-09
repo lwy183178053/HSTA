@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .sampler import enrich_processed_report, export_datazoo_8class
+from .sampler import enrich_processed_report, export_datazoo_open_set
 
 
 def parse_size(value: str):
@@ -29,20 +29,25 @@ def ensure_datazoo_package():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["tls", "quic"], default=None)
-    parser.add_argument("--size", default="S", choices=["XS", "S", "M", "L"])
+    parser.add_argument("--size", default="XS", choices=["XS", "S", "M", "L"])
     parser.add_argument("--seq-len", type=int, default=30)
-    parser.add_argument("--topk", type=int, default=40)
+    parser.add_argument("--topk", type=int, default=100, help="number of known classes selected by DataZoo training frequency")
+    parser.add_argument("--unknown-count", type=int, default=5, help="held-out application classes grouped as _unknown")
+    parser.add_argument("--noise-ratio", type=float, default=0.05, help="synthetic unknown flows as a fraction of each split")
+    parser.add_argument("--noise-seed", type=int, default=42)
+    parser.add_argument("--random-split", action="store_true", help="use DataZoo's random validation split instead of date windows")
     parser.add_argument("--classes", nargs="*", default=None)
-    parser.add_argument("--scan-batches", type=int, default=300)
+    parser.add_argument("--scan-batches", type=int, default=100)
     parser.add_argument("--max-train-per-class", type=int, default=10000)
-    parser.add_argument("--max-val-per-class", type=int, default=2000)
-    parser.add_argument("--max-test-per-class", type=int, default=2000)
-    parser.add_argument("--init-train-size", default="1000000")
-    parser.add_argument("--init-val-size", default="200000")
-    parser.add_argument("--init-test-size", default="200000")
+    parser.add_argument("--max-val-per-class", type=int, default=300)
+    parser.add_argument("--max-test-per-class", type=int, default=300)
+    parser.add_argument("--init-train-size", default="all")
+    parser.add_argument("--init-val-size", default="all")
+    parser.add_argument("--init-test-size", default="all")
     parser.add_argument("--datazoo-batch-size", type=int, default=64)
     parser.add_argument("--datazoo-test-batch-size", type=int, default=64)
     parser.add_argument("--datazoo-workers", type=int, default=0)
+    parser.add_argument("--max-export-batches", type=int, default=None)
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--out-csv", default=None)
     parser.add_argument(
@@ -74,10 +79,10 @@ def main():
         parser.error("--dataset is required unless --enrich-existing-reports is used")
 
     ensure_datazoo_package()
-    report = export_datazoo_8class(
+    report = export_datazoo_open_set(
         dataset_name=args.dataset,
         size=args.size,
-        project_root=Path(args.project_root),
+        project_root=Path(args.project_root).resolve(),
         out_csv=args.out_csv,
         seq_len=args.seq_len,
         topk=args.topk,
@@ -92,6 +97,11 @@ def main():
         datazoo_batch_size=args.datazoo_batch_size,
         datazoo_test_batch_size=args.datazoo_test_batch_size,
         datazoo_workers=args.datazoo_workers,
+        unknown_count=args.unknown_count,
+        noise_ratio=args.noise_ratio,
+        noise_seed=args.noise_seed,
+        temporal_split=not args.random_split,
+        max_export_batches=args.max_export_batches,
     )
     print("[OK] csv:", report["out_csv"])
     print("[OK] report:", str(Path(report["out_csv"]).with_suffix(".report.json")))
