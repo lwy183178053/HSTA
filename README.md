@@ -1,4 +1,4 @@
-# HSTA: Encrypted Traffic Classification
+# HSTA-CM: Encrypted Traffic Classification
 
 This repository contains the compact open-set experiment code for HSTA-CM on CESNET-TLS22 and CESNET-QUIC22. Every flow is represented by its first 30 packets and three observable features: packet size, direction, and inter-arrival time.
 
@@ -29,11 +29,11 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/H
 ## Data and experiments
 
 ```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 1000 --max-val-per-class 1000 --max-test-per-class 1000 --datazoo-batch-size 2048 --max-export-batches 500
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 1000 --max-val-per-class 1000 --max-test-per-class 1000 --datazoo-batch-size 2048 --max-export-batches 500
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048
 ```
 
-The existing S H5 files are used directly. The checked-in local export keeps up to 1,000 flows per known class in each date split so it remains small; smaller classes are retained in full. For the full balanced export, use 10,000 for all three caps and omit `--max-export-batches`. Held-out applications and synthetic noise share the `unknown` label. Then run:
+The existing S H5 files are used directly. Each known class is capped at 10,000 flows per date split; classes with fewer flows keep all available samples. Held-out applications and synthetic noise share the `unknown` label. Then run:
 
 ```bash
 bash scripts/run_wsl_experiments.sh main

@@ -10,6 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+import pytest
+
+from models import build_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +31,7 @@ def test_only_s_configs_remain():
     paths = [path for path, _ in _configs()]
     assert paths, "at least one experiment configuration is required"
     assert all(
-        path.name in {"base.yaml", "compact_s.yaml", "hsta_cm_ablation_s.yaml"}
+        path.name in {"compact_s.yaml", "hsta_cm_ablation_s.yaml"}
         for path in paths
     )
 
@@ -55,7 +58,7 @@ def test_compact_matrix_contains_only_primary_comparisons():
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
     names = {str(exp.get("model", "")).lower() for exp in cfg.get("experiments", [])}
     assert names <= {
-        "hsta",
+        "hsta-cm",
         "30pkttcnet-adapted",
         "netmamba-adapted",
         "30pkttcnet_adapted",
@@ -65,9 +68,26 @@ def test_compact_matrix_contains_only_primary_comparisons():
         "bpf-gnn",
         "bpf_gnn",
     }
-    assert {"hsta", "srvit", "trafficaudio", "bpf-gnn"} <= names
+    assert names == {
+        "hsta-cm",
+        "30pkttcnet-adapted",
+        "netmamba-adapted",
+        "srvit",
+        "trafficaudio",
+        "bpf-gnn",
+    }
+    assert {"hsta-cm", "srvit", "trafficaudio", "bpf-gnn"} <= names
     model_cfg = cfg.get("base", {}).get("model_cfg", {})
     assert model_cfg.get("attention_backend") == "flash"
+
+
+def test_hsta_cm_ablation_matrix_is_four_by_two():
+    cfg = yaml.safe_load((CONFIG_DIR / "hsta_cm_ablation_s.yaml").read_text(encoding="utf-8"))
+    names = {str(exp["exp_name"]) for exp in cfg["experiments"]}
+    assert len(names) == 8
+    assert {"full", "no_conv", "no_mamba", "no_attention"} <= {
+        name.split("hsta_cm_", 1)[1].rsplit("_", 2)[0] for name in names
+    }
 
 
 def test_runner_does_not_expose_removed_modes():
@@ -82,3 +102,8 @@ def test_runner_does_not_expose_removed_modes():
         "evidence",
     ):
         assert token not in runner
+
+
+def test_legacy_hsta_registry_name_is_removed():
+    with pytest.raises(ValueError):
+        build_model("hsta", input_dim=3, num_classes=101, seq_len=30, cfg={})

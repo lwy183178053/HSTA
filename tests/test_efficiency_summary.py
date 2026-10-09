@@ -26,7 +26,7 @@ def test_tcnet_primary_baseline_accepts_shared_packet_tensor():
 
 @pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for mamba_ssm")
-@pytest.mark.parametrize("name", ["hsta", "netmamba-adapted"])
+@pytest.mark.parametrize("name", ["hsta-cm", "netmamba-adapted"])
 def test_mamba_primary_models_accept_shared_packet_tensor(name):
     model = build_model(
         name,

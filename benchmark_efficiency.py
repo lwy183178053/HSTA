@@ -26,12 +26,13 @@ DEFAULT_CONFIGS = [
 # Standalone Mamba baseline is intentionally excluded; NetMamba-adapted covers
 # the Mamba-only comparison in the final experiment set.
 CORE_MODELS = {
-    "hsta",
+    "hsta-cm",
     "30pkttcnet-adapted",
     "netmamba-adapted",
     "srvit",
     "trafficaudio",
     "bpf_gnn",
+    "bpf-gnn",
 }
 TASK_NAMES = ("tls22_s", "quic22_s")
 
@@ -144,7 +145,11 @@ class FlopCounter:
                 self.handles.append(module.register_forward_hook(self._conv1d_hook))
             elif isinstance(module, nn.GRU):
                 self.handles.append(module.register_forward_hook(self._rnn_hook))
-            elif module.__class__.__name__ in {"MultiHeadSelfAttention", "RelativePositionSelfAttention"}:
+            elif module.__class__.__name__ in {
+                "FlashSelfAttention",
+                "MultiHeadSelfAttention",
+                "RelativePositionSelfAttention",
+            }:
                 self.handles.append(module.register_forward_hook(self._attention_hook))
             elif module.__class__.__name__ == "MambaBlock":
                 self.handles.append(module.register_forward_hook(self._mamba_block_hook))
@@ -400,6 +405,14 @@ def _variant_from_exp_name(exp_name: str) -> str:
         return "ablation_attention_middle"
     if exp_name.startswith("ablation_attention_front"):
         return "ablation_attention_front"
+    if "no_conv" in exp_name:
+        return "no_conv"
+    if "no_mamba" in exp_name:
+        return "no_mamba"
+    if "no_attention" in exp_name:
+        return "no_attention"
+    if "cm_full" in exp_name:
+        return "full"
     return "main"
 
 
@@ -540,7 +553,10 @@ def run(args) -> None:
         seed = _seed_from_exp_name(item["exp_name"])
         variant = _variant_from_exp_name(output_exp_name)
         attention_modules = [
-            module for module in model.modules() if module.__class__.__name__ == "MultiHeadSelfAttention"
+            module
+            for module in model.modules()
+            if module.__class__.__name__
+            in {"FlashSelfAttention", "MultiHeadSelfAttention", "RelativePositionSelfAttention"}
         ]
         requested_backends = sorted(
             {str(getattr(module, "attention_backend", "manual")) for module in attention_modules}
@@ -709,7 +725,7 @@ def run(args) -> None:
         "- `benchmark_results.csv`：按实验和 batch size 汇总的延迟与 FLOPs。",
         "- `benchmark_repeats.csv`：每次重复测试的原始记录。",
         "- `summary.csv`：便于排序的完整模型效率表。",
-        "- `core_model_efficiency.csv`：四个主任务的 seed42 核心/适配模型效率表。",
+        "- `core_model_efficiency.csv`：TLS22-S 和 QUIC22-S 主任务的 seed42 核心/适配模型效率表。",
         "- `benchmark_results.json`：完整元数据和 FLOPs 分解。",
         "",
         "FLOPs 约定：一次乘加计为 2 个 FLOPs，MACs 按 FLOPs / 2 计算。",
@@ -738,7 +754,13 @@ def parse_args():
     parser.add_argument("--output-dir", default="results/efficiency_benchmark")
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, cuda:0, ...")
     parser.add_argument("--cpu", action="store_true", help="Force CPU when --device auto is used.")
-    parser.add_argument("--batch-sizes", nargs="*", type=int, default=[1, 32, 512])
+    parser.add_argument(
+        "--batch-sizes",
+        nargs="*",
+        type=int,
+        default=[1, 8, 32],
+        help="Batch sizes reported by the efficiency protocol (default: 1 8 32).",
+    )
     parser.add_argument("--repeats", type=int, default=5, help="Independent benchmark repeats averaged in result tables.")
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--iterations", type=int, default=100)
