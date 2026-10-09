@@ -524,11 +524,14 @@ def export_csv(
     seq_len: int,
     max_per_class_by_split: dict[str, int | None] | None = None,
     include_unknown: bool = True,
+    unknown_source_labels: set[str] | None = None,
     max_batches_per_split: int | None = None,
 ):
     out_csv = Path(out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     selected = set(classes)
+    unknown_source_labels = {str(label) for label in (unknown_source_labels or set())}
+    selected.update(unknown_source_labels)
     if include_unknown:
         selected.add(UNKNOWN_LABEL)
     split_counts = {split: Counter() for split in ["train", "val", "test"]}
@@ -548,6 +551,8 @@ def export_csv(
             for batch_index, batch in enumerate(tqdm(get_loader(dataset, split), desc=f"export {split}")):
                 for ppi_one, label_raw in iter_batch(batch):
                     label = decode_label(label_raw, dataset)
+                    if label in unknown_source_labels:
+                        label = UNKNOWN_LABEL
                     if label not in selected:
                         continue
                     if split_cap and split_counts[split][label] >= split_cap:
@@ -734,6 +739,7 @@ def export_datazoo_open_set(
             "test": max_test_per_class,
         },
         include_unknown=bool(unknown_count > 0),
+        unknown_source_labels={str(x) for x in getattr(dataset.class_info, "unknown_apps", [])},
         max_batches_per_split=max_export_batches,
     )
     noise_counts = append_synthetic_unknown(
