@@ -6,6 +6,8 @@ HSTA-CM uses native `Conv1d` for packet-position structure, the current `mamba_s
 
 The retained comparison families are 30pktTCNET-adapted, NetMamba-adapted, SRViT, TrafficAudio, and BPF-GNN. GRU, standalone Transformer, 40/60-class tasks, and old evidence scripts are removed from the active registry.
 
+`HSTA-CM-DFT` is an optional frequency-domain extension experiment. It applies a one-sided `rFFT` along the 30-packet axis, stacks real and imaginary parts as `[B, 2, 3, 16]`, encodes adjacent frequency bins with three residual PyTorch `Conv2d` layers using `(1, 3)` kernels, and fuses the pooled frequency vector with the two-layer Mamba temporal branch. It is reported separately from the primary HSTA-CM comparison.
+
 ## Layout
 
 `data/` contains DataZoo export and temporal CSV loading code. `models/` contains HSTA-CM and the five retained comparison implementations. `configs/` contains the compact S matrix and focused HSTA ablation. `train.py` and `evaluate.py` are the single-run entry points; `run_experiments.py` expands YAML matrices. `scripts/run_wsl_experiments.sh` runs the supported WSL groups. `docs/` records the architecture, scope, and reproducibility protocol.

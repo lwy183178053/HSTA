@@ -27,6 +27,7 @@ DEFAULT_CONFIGS = [
 # the Mamba-only comparison in the final experiment set.
 CORE_MODELS = {
     "hsta-cm",
+    "hsta-cm-dft",
     "30pkttcnet-adapted",
     "netmamba-adapted",
     "srvit",
@@ -84,6 +85,14 @@ class FlopCounter:
         if module.bias is not None:
             flops += out.numel()
         self._add("conv1d", flops)
+
+    def _conv2d_hook(self, module: nn.Conv2d, inputs, output) -> None:
+        out = output[0] if isinstance(output, tuple) else output
+        kernel_ops = (module.in_channels // module.groups) * module.kernel_size[0] * module.kernel_size[1]
+        flops = 2 * out.numel() * kernel_ops
+        if module.bias is not None:
+            flops += out.numel()
+        self._add("conv2d", flops)
 
     def _rnn_hook(self, module: nn.Module, inputs, output) -> None:
         x = inputs[0]
@@ -143,6 +152,8 @@ class FlopCounter:
                 self.handles.append(module.register_forward_hook(self._linear_hook))
             elif isinstance(module, nn.Conv1d):
                 self.handles.append(module.register_forward_hook(self._conv1d_hook))
+            elif isinstance(module, nn.Conv2d):
+                self.handles.append(module.register_forward_hook(self._conv2d_hook))
             elif isinstance(module, nn.GRU):
                 self.handles.append(module.register_forward_hook(self._rnn_hook))
             elif module.__class__.__name__ in {

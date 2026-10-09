@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .adapted_sota import NetMambaAdapted, PktTCNetAdapted
 from .hsta_cm import HSTACM
+from .hsta_cm_dft import HSTACMDFT
 from .recent_journal_baselines import BPFGNN, SRViT, TrafficAudio
 
 
@@ -35,6 +36,16 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             conv_kernel_size=_int(cfg, "conv_kernel_size", 3),
             use_conv=bool(cfg.get("use_conv", True)),
             use_mamba=bool(cfg.get("use_mamba", True)),
+            use_attention=bool(cfg.get("use_attention", True)),
+            use_position=bool(cfg.get("use_position", True)),
+        )
+    if model in {"hsta_cm_dft", "hsta-cm-dft"}:
+        return HSTACMDFT(
+            input_dim, num_classes, dim=dim, depth=depth,
+            heads=_int(cfg, "heads", 4), mlp_ratio=_int(cfg, "mlp_ratio", 4),
+            dropout=dropout, d_state=_int(cfg, "d_state", 16),
+            d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
+            max_len=_int(cfg, "max_len", seq_len), pooling=str(cfg.get("pooling", "mean")),
             use_attention=bool(cfg.get("use_attention", True)),
             use_position=bool(cfg.get("use_position", True)),
         )
@@ -71,8 +82,8 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             top_k=_int(cfg, "top_k", 4), num_subflows=_int(cfg, "num_subflows", 5),
         )
     raise ValueError(
-        f"Unknown model {name!r}; choose HSTA-CM, 30pktTCNET, NetMamba, SRViT, TrafficAudio or BPF-GNN"
+        f"Unknown model {name!r}; choose HSTA-CM, HSTA-CM-DFT, 30pktTCNET, NetMamba, SRViT, TrafficAudio or BPF-GNN"
     )
 
 
-__all__ = ["HSTACM", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]
+__all__ = ["HSTACM", "HSTACMDFT", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]

@@ -15,6 +15,8 @@ def main() -> None:
     model_names = {
         "hsta-cm": "HSTA-CM",
         "hsta_cm": "HSTA-CM",
+        "hsta-cm-dft": "HSTA-CM-DFT",
+        "hsta_cm_dft": "HSTA-CM-DFT",
         "30pkttcnet-adapted": "30pktTCNET",
         "netmamba-adapted": "NetMamba",
         "srvit": "SRViT",

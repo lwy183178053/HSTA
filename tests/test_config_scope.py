@@ -51,7 +51,7 @@ def test_configs_do_not_reference_removed_tasks_or_models():
             assert token not in text, f"{path.name} still references removed {token}"
 
 
-def test_compact_matrix_contains_only_primary_comparisons():
+def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
     path = CONFIG_DIR / "compact_s.yaml"
     if not path.exists():
         return
@@ -59,6 +59,7 @@ def test_compact_matrix_contains_only_primary_comparisons():
     names = {str(exp.get("model", "")).lower() for exp in cfg.get("experiments", [])}
     assert names <= {
         "hsta-cm",
+        "hsta-cm-dft",
         "30pkttcnet-adapted",
         "netmamba-adapted",
         "30pkttcnet_adapted",
@@ -70,6 +71,7 @@ def test_compact_matrix_contains_only_primary_comparisons():
     }
     assert names == {
         "hsta-cm",
+        "hsta-cm-dft",
         "30pkttcnet-adapted",
         "netmamba-adapted",
         "srvit",
@@ -77,6 +79,15 @@ def test_compact_matrix_contains_only_primary_comparisons():
         "bpf-gnn",
     }
     assert {"hsta-cm", "srvit", "trafficaudio", "bpf-gnn"} <= names
+    dft_experiments = [
+        exp for exp in cfg.get("experiments", [])
+        if str(exp.get("model", "")).lower() == "hsta-cm-dft"
+    ]
+    assert {exp["exp_name"] for exp in dft_experiments} == {
+        "hsta_cm_dft_tls22_s_seed42",
+        "hsta_cm_dft_quic22_s_seed42",
+    }
+    assert all(int(exp["seed"]) == 42 for exp in dft_experiments)
     model_cfg = cfg.get("base", {}).get("model_cfg", {})
     assert model_cfg.get("attention_backend") == "flash"
 
