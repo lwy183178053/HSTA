@@ -33,7 +33,7 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/H
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 1000 --max-val-per-class 1000 --max-test-per-class 1000 --datazoo-batch-size 2048 --max-export-batches 500
 ```
 
-The existing S H5 files are used directly. The checked-in protocol uses up to 1,000 flows per one of the 100 known classes to keep the local CSV manageable; raise all three caps to 10,000 for the full-size run. Smaller classes are always kept in full. Then run:
+The existing S H5 files are used directly. The checked-in local export keeps up to 1,000 flows per known class in each date split so it remains small; smaller classes are retained in full. For the full balanced export, use 10,000 for all three caps and omit `--max-export-batches`. Held-out applications and synthetic noise share the `unknown` label. Then run:
 
 ```bash
 bash scripts/run_wsl_experiments.sh main
