@@ -1,6 +1,6 @@
 # 开放集流量识别实验协议
 
-本文档是后续数据集构建、模型比较、消融和结果汇报的统一依据。协议适用于 CESNET-TLS22-S 与 CESNET-QUIC22-S；正式主结果优先使用 `paper` 规模，`small` 用于先行验证流程和调参。`tiny` 只用于调试，不作为论文结论。
+本文档是后续数据集构建、模型比较、消融和结果汇报的统一依据。协议适用于 CESNET-TLS22-S 与 CESNET-QUIC22-S；正式主结果优先使用 `paper` 规模，`small` 用于先行验证流程和调参。采样只保留 `small`、`medium`、`paper` 三档。
 
 DataZoo 已提供原始 HDF5、官方索引和 DataLoader。项目导出的 CSV 只作为固定类别、unknown 来源和均衡采样的可审计缓存，不等同于完整 S 数据集。两套 22 版数据的 PPI 都固定为前 30 个包，使用 `IPT、DIR、SIZE` 三个通道，输入形状为 `[30, 3]`；30 是协议常量，导出文件名不再附加序列长度后缀。DataZoo 默认提供训练周期和后续测试周期，并支持从训练周期随机划分验证集；本项目采用独立日期作为验证集，结果中必须明确记录采用的划分方式。
 
@@ -26,7 +26,7 @@ DataZoo 已提供原始 HDF5、官方索引和 DataLoader。项目导出的 CSV 
 - **真实应用留出集**：留出应用类别完全不出现在任何模型训练数据中。其测试窗口流量映射为 `unknown`，专用于测试；不用于训练、早停、阈值校准、特征归一化拟合或任何超参数选择。
 - **噪声 unknown**：训练支持噪声可用于 HSTA-CM-open 训练；验证和测试噪声必须使用与训练阶段不同的生成族。噪声的参数只能由训练已知数据估计，不能从验证或测试特征反向拟合。
 
-unknown 应保留来源元数据，例如原始应用标识、`source_group`（`known`、`heldout_app`、`noise_train`、`noise_val`、`noise_test`）及生成族编号。标签供训练和分类评价使用，来源元数据只用于分层统计，不能作为模型输入。源应用身份不应跨训练支持集与测试留出集；真实留出应用在测试中可以跨日期窗口出现，但绝不能在训练或验证中出现。
+unknown 应保留来源元数据，例如原始应用标识、`source_group`（`known`、`unknown_support`、`unknown_val_heldout`、`unknown_test_heldout`、`noise_train`、`noise_val`、`noise_test`）及生成族编号。标签供训练和分类评价使用，来源元数据只用于分层统计，不能作为模型输入。源应用身份不应跨训练支持集与测试留出集；真实留出应用在测试中可以跨日期窗口出现，但绝不能在训练或验证中出现。
 
 ## 3. 时间划分与采样规模
 
@@ -41,8 +41,7 @@ unknown 应保留来源元数据，例如原始应用标识、`source_group`（`
 
 | 规模 | 训练/类 | 验证/类 | 测试/类 | 用途 |
 | --- | ---: | ---: | ---: | --- |
-| `tiny` | 100 | 20 | 20 | 仅检查代码和数据流，不报告论文结果 |
-| `small` | 500 | 100 | 100 | 先行实验、排查训练和指标问题 |
+| `small` | 100 | 20 | 20 | 先行实验、排查训练和指标问题 |
 | `medium` | 1,000 | 200 | 200 | 可选的规模趋势检查 |
 | `paper` | 10,000 | 1,000 | 2,000 | 正式主结果 |
 
@@ -95,14 +94,20 @@ unknown 的采样另按来源组和类别控制，不把所有 unknown 当成一
 
 正式启动前必须验证数据审计报告：训练/验证/测试 flow ID 无交集；已知类映射稳定；训练 unknown 应用与测试留出应用无交集；噪声生成族隔离；scaler 仅由训练集拟合；测试集三种来源均非空；每类实际样本数满足报告要求。
 
-## 9. 当前实现差距
+## 9. 协议落地状态
 
-当前脚本还没有完全实现本协议，以下事项完成前不得把其输出称为正式开放集主结果：
+以下实现已经完成并在 `small` 数据上通过审计：
 
-1. `data/sampler.py` 目前只选取候选 unknown 应用中的前 `unknown_count` 个（默认 5 个），而不是对 100 个已知类以外的全部应用类别形成完整候选池；需保存完整候选清单并明确划分训练支持/测试留出应用。
-2. 导出时真实未知应用已折叠为 `unknown`，没有保留原始应用标识，无法审计应用级隔离，也无法可靠制作训练支持与测试留出集合；需在折叠前划分并保留不可作为输入的来源元数据。
-3. `append_synthetic_unknown` 目前对 train/val/test 使用相同高斯扰动族；测试噪声需切换为训练从未见过的生成族，并将生成族标识写入报告。
-4. `sample_temporal_dataset.py` 当前对合并后的 `unknown` 标签统一按类别上限采样，不能按未知应用/来源组均衡控制；应先按来源分组采样，保留各来源样本数和清单。
-5. 确认训练代码的 AUROC/AUPR、未知误判为已知比例以及已知子集指标命名与本协议一致，并确保原始/阈值版本都落盘。若实现计算的是 unknown AUROC 但没有 AUPR，应补齐后再生成最终结果表。
+1. `data/sampler.py` 默认使用 Top-100 之外的完整 unknown 候选池，并保存候选清单、应用身份分组和划分种子；`unknown_count` 只保留为调试截断参数。
+2. 真实应用在折叠为 `unknown` 前分组，CSV 保留 `original_app`、`source_group` 和 `noise_family`，这些元数据不进入模型输入。
+3. 训练、验证、测试使用不同合成噪声族，并在报告中记录生成族和参数来源。
+4. `sample_temporal_dataset.py` 按 known label 和 unknown 来源组独立采样，同时保存流级 manifest。
+5. `data/open_set.py` 和 `train.py` 同时落盘 raw argmax 与 threshold rejection 的 AUROC、AUPR、unknown false-known rate、known false-unknown rate、已知子集指标和整体 Macro-F1。
 
-修订数据构建器后，先在 `small` 规模运行数据审计和单种子流程测试；通过审计后再跑 `paper` 规模主实验和三个种子。旧 `tiny` 结果只保留为流程验证，不与正式结果合并。
+修订后的 `small` 数据已通过以下审计；通过审计后再跑 `paper` 规模主实验和三个种子。审计命令为：
+
+```powershell
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' scripts\audit_open_set_dataset.py --input-csv data\processed\datazoo_tls100_s_protocol_small_sampled.csv
+```
+
+审计必须确认流 ID 跨集合无交集、unknown 应用身份不冲突、训练/验证/测试噪声族互斥、测试同时含已知流量、真实留出应用和测试专属噪声。审计失败的数据不得用于正式开放集主结果。

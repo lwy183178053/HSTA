@@ -29,9 +29,15 @@ def ensure_datazoo_package():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["tls", "quic"], default=None)
-    parser.add_argument("--size", default="XS", choices=["XS", "S", "M", "L"])
+    parser.add_argument("--size", default="S", choices=["S", "M", "L"])
     parser.add_argument("--topk", type=int, default=100, help="number of known classes selected by DataZoo training frequency")
-    parser.add_argument("--unknown-count", type=int, default=5, help="held-out application classes grouped as _unknown")
+    parser.add_argument(
+        "--unknown-count",
+        type=int,
+        default=None,
+        help="optional debugging cap; default uses every application outside the known top-k pool",
+    )
+    parser.add_argument("--unknown-split-seed", type=int, default=599)
     parser.add_argument("--noise-ratio", type=float, default=0.05, help="synthetic unknown flows as a fraction of each split")
     parser.add_argument("--noise-seed", type=int, default=42)
     parser.add_argument("--random-split", action="store_true", help="use DataZoo's random validation split instead of date windows")
@@ -97,6 +103,7 @@ def main():
         datazoo_test_batch_size=args.datazoo_test_batch_size,
         datazoo_workers=args.datazoo_workers,
         unknown_count=args.unknown_count,
+        unknown_split_seed=args.unknown_split_seed,
         noise_ratio=args.noise_ratio,
         noise_seed=args.noise_seed,
         temporal_split=not args.random_split,

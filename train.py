@@ -91,20 +91,22 @@ def eval_model(
                 "known_macro_recall": float(known_recall),
                 "known_macro_f1": float(known_f1),
             })
+    # Persist both protocol views.  ``raw`` is the classifier argmax; the
+    # ``threshold`` view applies the validation-calibrated reject threshold.
+    # Keeping both namespaces in every result makes it impossible to confuse a
+    # closed-set argmax score with the open-set operating point.
     raw_open = open_set_metrics(y_true, y_pred, logits, classes, unknown_index, None)
-    for key in ("unknown_recall", "unknown_precision", "unknown_f1", "known_false_unknown_rate", "open_set_accuracy", "unknown_auroc"):
-        metrics[f"raw_{key}"] = raw_open[key]
-    metrics["raw_open_set_macro_f1"] = float(
-        f1_score(y_true, y_pred, average="macro", zero_division=0)
-    )
-    open_pred = y_pred.copy()
-    if reject_threshold is not None and unknown_index is not None:
-        scores = unknown_score_from_logits(logits, unknown_index)
-        open_pred[scores >= float(reject_threshold)] = int(unknown_index)
-    metrics["open_set_macro_f1"] = float(
-        f1_score(y_true, open_pred, average="macro", zero_division=0)
-    )
-    metrics.update(open_set_metrics(y_true, y_pred, logits, classes, unknown_index, reject_threshold))
+    threshold_open = open_set_metrics(y_true, y_pred, logits, classes, unknown_index, reject_threshold)
+    for prefix, open_metrics in (("raw", raw_open), ("threshold", threshold_open)):
+        for key, value in open_metrics.items():
+            metrics[f"{prefix}_{key}"] = value
+
+    # Legacy unprefixed fields retain the threshold operating point so existing
+    # summaries continue to read the calibrated result.
+    metrics.update(threshold_open)
+    metrics["raw_open_set_macro_f1"] = raw_open["open_set_macro_f1"]
+    metrics["threshold_open_set_macro_f1"] = threshold_open["open_set_macro_f1"]
+    metrics["open_set_macro_f1"] = threshold_open["open_set_macro_f1"]
     return (
         metrics,
         y_true,

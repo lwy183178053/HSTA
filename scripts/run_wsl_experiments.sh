@@ -12,14 +12,14 @@ case "$MODE" in
   main|main_all|compact_s)
     python run_experiments.py --config configs/compact_s.yaml --resume
     ;;
-  quick_tls|open_set_tls_seed599)
-    # One deterministic TLS22-S tiny run with HSTA-open, HSTA-closed and
+  small_tls|open_set_tls_seed599)
+    # One deterministic TLS22-S small run with HSTA-open, HSTA-closed and
     # closed-set baselines. The old compact_s_tls_seed599 directory contains
     # the pre-protocol 101-way baseline results and is not comparable.
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --output-dir results/open_set_tls_seed599 \
-      --data-csv data/processed/datazoo_tls100_s_tiny.csv \
+      --data-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv \
       --only \
         hsta_cm_tls22_s_seed599 \
         hsta_cm_closed_tls22_s_seed599 \
@@ -31,12 +31,12 @@ case "$MODE" in
         bpfgnn_tls22_s \
       --resume
     ;;
-  quick_quic|open_set_quic_seed599)
-    # One deterministic QUIC22-S tiny run under the same open-set protocol.
+  small_quic|open_set_quic_seed599)
+    # One deterministic QUIC22-S small run under the same open-set protocol.
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --output-dir results/open_set_quic_seed599 \
-      --data-csv data/processed/datazoo_quic100_s_tiny.csv \
+      --data-csv data/processed/datazoo_quic100_s_protocol_small_sampled.csv \
       --only \
         hsta_cm_quic22_s_seed599 \
         hsta_cm_closed_quic22_s_seed599 \
@@ -55,7 +55,7 @@ case "$MODE" in
     python benchmark_efficiency.py --output-dir results/efficiency_benchmark
     ;;
   *)
-    echo "Usage: $0 {main|main_all|compact_s|quick_tls|quick_quic|ablation|efficiency}" >&2
+    echo "Usage: $0 {main|main_all|compact_s|small_tls|small_quic|ablation|efficiency}" >&2
     exit 2
     ;;
 esac

@@ -48,8 +48,8 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && sour
 使用已有的 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件生成 100 个已知类别。DataZoo 本身提供按时间/索引划分的 DataLoader；当前 CSV 是为可复现的应用隔离、均衡采样和来源审计生成的缓存，不是完整 S 数据集副本：
 
 ```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048 --out-csv data/processed/datazoo_tls100_s_protocol.csv
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048 --out-csv data/processed/datazoo_quic100_s_protocol.csv
 ```
 
 正式矩阵和消融实验：
@@ -60,13 +60,15 @@ bash scripts/run_wsl_experiments.sh ablation
 bash scripts/run_wsl_experiments.sh efficiency
 ```
 
-为了快速检查流程，可先按时间窗口均衡采样，再运行 TLS 或 QUIC 的 seed 599：
+先按时间窗口均衡采样，再运行 TLS 或 QUIC 的 seed 599：
 
 ```bash
-python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s.csv --output-csv data/processed/datazoo_tls100_s_tiny.csv --dataset tls --profile tiny --seed 599
-bash scripts/run_wsl_experiments.sh quick_tls
+python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s_protocol.csv --output-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv --dataset tls --profile small --seed 599
+python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_quic100_s_protocol.csv --output-csv data/processed/datazoo_quic100_s_protocol_small_sampled.csv --dataset quic --profile small --seed 599
+bash scripts/run_wsl_experiments.sh small_tls
+bash scripts/run_wsl_experiments.sh small_quic
 ```
 
-采样配置为每类训练/验证/测试最多 `100/20/20`（`tiny`）、`500/100/100`（`small`）、`1000/200/200`（`medium`）和 `10000/1000/2000`（`paper`）。采样单位是完整流，不跨时间窗口移动流量；样本规模改变不会改变模型结构或参数量。
+采样配置为每类训练/验证/测试最多 `100/20/20`（`small`）、`1000/200/200`（`medium`）和 `10000/1000/2000`（`paper`）。采样单位是完整流，不跨时间窗口移动流量；样本规模改变不会改变模型结构或参数量。
 
 主实验报告已知类别 Accuracy/Macro-F1、未知 Recall/Precision/F1、AUROC/AUPR、已知流量误拒率、参数量和运行时间。旧的 `results/compact_s_tls_seed599` 使用了所有模型都带 `unknown` 的旧协议，只能作为流程检查，不能用于证明开放集改进。

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import (
+    average_precision_score,
+    f1_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 
 
 UNKNOWN_LABELS = {"unknown", "_unknown", "__unknown__"}
@@ -59,7 +64,8 @@ def open_set_metrics(
     and synthetic noise.  When ``reject_threshold`` is supplied, predictions
     are rejected using the unknown probability (or ``1-max(p_known)`` for a
     classifier without an unknown output).  Without it, the model's argmax is
-    evaluated directly.  NaN is returned for AUROC when one side is absent.
+    evaluated directly. NaN is returned for AUROC/AUPR when one side is absent.
+    Unknown is always the positive class for binary detection metrics.
     """
     y_true = np.asarray(y_true, dtype=np.int64).reshape(-1)
     y_pred = np.asarray(y_pred, dtype=np.int64).reshape(-1).copy()
@@ -68,19 +74,30 @@ def open_set_metrics(
     if unknown_index is None:
         unknown_index = unknown_class_index(classes)
     if unknown_index is None:
+        known_accuracy = float(np.mean(y_pred == y_true)) if y_true.size else float("nan")
+        known_f1 = (
+            float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+            if y_true.size
+            else float("nan")
+        )
         return {
             "unknown_index": float("nan"),
             "known_count": float(y_true.size),
             "unknown_count": 0.0,
+            "unknown_prevalence": 0.0,
             "unknown_recall": float("nan"),
             "unknown_precision": float("nan"),
             "unknown_f1": float("nan"),
             "known_false_unknown_rate": float("nan"),
-            "known_accuracy": float(f1_score(y_true, y_pred, average="micro", zero_division=0))
-            if y_true.size
-            else float("nan"),
-            "open_set_accuracy": float("nan"),
+            "unknown_false_known_rate": float("nan"),
+            "known_accuracy": known_accuracy,
+            "known_macro_precision": float("nan"),
+            "known_macro_recall": float("nan"),
+            "known_macro_f1": known_f1,
+            "open_set_accuracy": known_accuracy,
+            "open_set_macro_f1": known_f1,
             "unknown_auroc": float("nan"),
+            "unknown_aupr": float("nan"),
         }
     unknown_index = int(unknown_index)
     unknown_true = y_true == unknown_index
@@ -110,26 +127,61 @@ def open_set_metrics(
     unknown_recall = unknown_tp / max(unknown_count, 1)
     unknown_f1 = 2 * unknown_precision * unknown_recall / max(unknown_precision + unknown_recall, 1e-12)
     known_false_unknown_rate = float(np.sum(known_true & predicted_unknown) / max(known_count, 1))
+    unknown_false_known_rate = float(np.sum(unknown_true & ~predicted_unknown) / max(unknown_count, 1))
     known_accuracy = float(np.mean(y_pred[known_true] == y_true[known_true])) if known_count else float("nan")
     open_set_accuracy = float(np.mean(y_pred == y_true)) if y_true.size else float("nan")
+
+    if known_count:
+        if classes:
+            known_labels = np.asarray(
+                [index for index in range(len(classes)) if index != unknown_index],
+                dtype=np.int64,
+            )
+        else:
+            known_labels = np.unique(y_true[known_true])
+        known_precision, known_recall, known_f1, _ = precision_recall_fscore_support(
+            y_true[known_true],
+            y_pred[known_true],
+            labels=known_labels,
+            average="macro",
+            zero_division=0,
+        )
+    else:
+        known_precision = known_recall = known_f1 = float("nan")
+    open_set_macro_f1 = (
+        float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        if y_true.size
+        else float("nan")
+    )
 
     if unknown_scores is not None and unknown_count and known_count:
         try:
             unknown_auroc = float(roc_auc_score(unknown_true.astype(np.int8), unknown_scores))
         except ValueError:
             unknown_auroc = float("nan")
+        try:
+            unknown_aupr = float(average_precision_score(unknown_true.astype(np.int8), unknown_scores))
+        except ValueError:
+            unknown_aupr = float("nan")
     else:
-        unknown_auroc = float("nan")
+        unknown_auroc = unknown_aupr = float("nan")
     return {
         "unknown_index": float(unknown_index),
         "known_count": float(known_count),
         "unknown_count": float(unknown_count),
+        "unknown_prevalence": float(unknown_count / max(y_true.size, 1)),
         "unknown_recall": float(unknown_recall),
         "unknown_precision": float(unknown_precision),
         "unknown_f1": float(unknown_f1),
         "known_false_unknown_rate": known_false_unknown_rate,
+        "unknown_false_known_rate": unknown_false_known_rate,
         "known_accuracy": known_accuracy,
+        "known_macro_precision": float(known_precision),
+        "known_macro_recall": float(known_recall),
+        "known_macro_f1": float(known_f1),
         "open_set_accuracy": open_set_accuracy,
+        "open_set_macro_f1": open_set_macro_f1,
         "unknown_auroc": unknown_auroc,
+        "unknown_aupr": unknown_aupr,
     }
 

@@ -51,6 +51,14 @@ TEMPORAL_DATE_SPLITS = {
 }
 UNKNOWN_LABEL = "unknown"
 PPI_LEN = 30
+UNKNOWN_SOURCE_GROUPS = ("unknown_support", "unknown_val_heldout", "unknown_test_heldout")
+DEFAULT_NOISE_FAMILIES = {
+    # These names are part of the data audit protocol.  Each split uses a
+    # different generator family; parameters are estimated from train rows.
+    "train": "gaussian_iid_v1",
+    "val": "shuffle_spike_v2",
+    "test": "mixture_burst_v3",
+}
 
 
 def _to_np(x):
@@ -193,6 +201,64 @@ def _sorted_labels(labels) -> list[str]:
     return sorted({str(label) for label in labels})
 
 
+def partition_unknown_apps(
+    applications: list[str] | tuple[str, ...] | set[str],
+    seed: int = 599,
+    support_fraction: float = 0.5,
+    val_fraction: float = 0.25,
+) -> dict[str, list[str]]:
+    """Split unknown application identities before they are label-folded.
+
+    The split is deterministic, identity-disjoint, and independent of flow
+    sampling.  ``support`` applications are the only real unknown identities
+    eligible for HSTA-CM-open training; validation and test identities are
+    held out from training entirely.  A small candidate pool is handled by
+    assigning at least one application to each non-empty group when possible.
+    """
+    apps = sorted({str(app) for app in applications if str(app) and str(app) != UNKNOWN_LABEL})
+    if not apps:
+        return {key: [] for key in UNKNOWN_SOURCE_GROUPS}
+    if not 0 < support_fraction < 1 or not 0 <= val_fraction < 1 or support_fraction + val_fraction >= 1:
+        raise ValueError("support_fraction and val_fraction must leave a non-empty test fraction")
+    rng = np.random.default_rng(int(seed))
+    order = rng.permutation(len(apps))
+    shuffled = [apps[int(index)] for index in order]
+    n = len(shuffled)
+    if n >= 3:
+        support_n = max(1, int(round(n * support_fraction)))
+        val_n = max(1, int(round(n * val_fraction)))
+        if support_n + val_n >= n:
+            val_n = max(1, n - support_n - 1)
+        test_n = n - support_n - val_n
+        if test_n < 1:
+            test_n = 1
+            if support_n > 1:
+                support_n -= 1
+            else:
+                val_n -= 1
+    elif n == 2:
+        support_n, val_n, test_n = 1, 0, 1
+    else:
+        support_n, val_n, test_n = 1, 0, 0
+    return {
+        "unknown_support": sorted(shuffled[:support_n]),
+        "unknown_val_heldout": sorted(shuffled[support_n : support_n + val_n]),
+        "unknown_test_heldout": sorted(shuffled[support_n + val_n : support_n + val_n + test_n]),
+    }
+
+
+def unknown_application_source_map(groups: dict[str, list[str]]) -> dict[str, str]:
+    """Return ``original_app -> source_group`` for exported flow metadata."""
+    mapping: dict[str, str] = {}
+    for source_group, applications in groups.items():
+        for application in applications:
+            application = str(application)
+            if application in mapping:
+                raise ValueError(f"unknown application appears in multiple groups: {application}")
+            mapping[application] = str(source_group)
+    return mapping
+
+
 def _counter_dict(counter: Counter) -> dict[str, int]:
     return {str(key): int(counter[key]) for key in sorted(counter)}
 
@@ -302,6 +368,25 @@ def scan_processed_csv_counts(
     }
 
 
+def scan_processed_source_counts(csv_path: str | Path) -> dict[str, dict[str, Counter]]:
+    """Count complete flows by split and preserved source metadata."""
+    source_counts: dict[str, Counter] = defaultdict(Counter)
+    app_counts: dict[str, Counter] = defaultdict(Counter)
+    seen: set[str] = set()
+    with Path(csv_path).open("r", newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            flow_id = str(row.get("flow_id", ""))
+            if not flow_id or flow_id in seen:
+                continue
+            seen.add(flow_id)
+            split = str(row.get("split", "all")).lower()
+            source_group = str(row.get("source_group", row.get("source", "")) or "")
+            original_app = str(row.get("original_app", "") or "")
+            source_counts[split][source_group] += 1
+            app_counts[split][original_app] += 1
+    return {"source_group": dict(source_counts), "original_app": dict(app_counts)}
+
+
 def enrich_processed_report(
     csv_path: str | Path,
     report_path: str | Path | None = None,
@@ -364,7 +449,8 @@ def build_dataset(
     test_batch_size: int = 64,
     workers: int = 0,
     known_topk: int | None = 100,
-    unknown_count: int = 5,
+    unknown_count: int | None = None,
+    unknown_split_seed: int = 599,
     temporal_split: bool = True,
 ):
     CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach = _imports()
@@ -414,6 +500,10 @@ def build_dataset(
             val_workers=workers,
             test_workers=workers,
             random_state=420,
+            # Keep application names in the batch labels.  Folding to the
+            # DataZoo unknown index here would make identity-level isolation
+            # impossible to audit during CSV export.
+            disable_label_encoding=True,
             **selection_kwargs,
         )
         if not temporal_split:
@@ -422,30 +512,73 @@ def build_dataset(
             common.pop("test_dates")
         return DatasetConfig(**common)
 
-    # First let DataZoo rank applications by actual training frequency.  A
-    # second fixed configuration limits the open-world arm to only a few
-    # explicit unknown applications; every other class is excluded.
-    if known_topk and unknown_count > 0:
+    # First let DataZoo rank applications by actual training frequency.  The
+    # complete complement of the top-k known classes is retained as the
+    # candidate unknown pool.  ``unknown_count`` is an optional debugging cap
+    # only; the default and formal protocol use every candidate application.
+    if known_topk and unknown_count is not None:
         probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
-        dataset.set_dataset_config_and_initialize(probe_cfg)
+        dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
         known_apps = [str(x) for x in dataset.class_info.known_apps]
-        unknown_apps = [str(x) for x in dataset.class_info.unknown_apps[: int(unknown_count)]]
-        if not unknown_apps:
+        all_unknown_apps = [str(x) for x in dataset.class_info.unknown_apps]
+        unknown_apps = all_unknown_apps[: int(unknown_count)]
+        if unknown_count > 0 and not unknown_apps:
             raise RuntimeError(f"No unknown applications available for {name} {size}")
         # Recreate the object so the generated index cache reflects the final
         # fixed known/unknown class list rather than the probe configuration.
         dataset = dataset_cls(str(dataset_root), size=size)
+        unknown_groups = partition_unknown_apps(unknown_apps, seed=unknown_split_seed)
+        train_support_apps = list(unknown_groups["unknown_support"])
+        eval_unknown_apps = [
+            app for group in ("unknown_val_heldout", "unknown_test_heldout")
+            for app in unknown_groups[group]
+        ]
         cfg = config_for(
             dataset,
             AppSelection.FIXED,
-            apps_selection_fixed_known=known_apps,
-            apps_selection_fixed_unknown=unknown_apps,
+            # DataZoo's train loader exposes only ``known`` indices. Include
+            # support applications in that index set, then fold them to the
+            # explicit unknown label during export.
+            apps_selection_fixed_known=known_apps + train_support_apps,
+            apps_selection_fixed_unknown=eval_unknown_apps,
         )
+        candidate_pool_complete = False
     elif known_topk:
-        cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
+        probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
+        dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
+        known_apps = [str(x) for x in dataset.class_info.known_apps]
+        all_unknown_apps = [str(x) for x in dataset.class_info.unknown_apps]
+        unknown_apps = list(all_unknown_apps)
+        unknown_groups = partition_unknown_apps(unknown_apps, seed=unknown_split_seed)
+        train_support_apps = list(unknown_groups["unknown_support"])
+        eval_unknown_apps = [
+            app for group in ("unknown_val_heldout", "unknown_test_heldout")
+            for app in unknown_groups[group]
+        ]
+        dataset = dataset_cls(str(dataset_root), size=size)
+        cfg = config_for(
+            dataset,
+            AppSelection.FIXED,
+            apps_selection_fixed_known=known_apps + train_support_apps,
+            apps_selection_fixed_unknown=eval_unknown_apps,
+        )
+        candidate_pool_complete = True
     else:
         cfg = config_for(dataset, AppSelection.ALL_KNOWN)
-    dataset.set_dataset_config_and_initialize(cfg)
+        known_apps = []
+        unknown_apps = []
+        unknown_groups = {key: [] for key in UNKNOWN_SOURCE_GROUPS}
+        candidate_pool_complete = True
+    # Keep protocol exports from writing additional DataZoo index caches. The
+    # configuration hash still isolates any existing generated cache.
+    dataset.set_dataset_config_and_initialize(cfg, disable_indices_cache=True)
+    # Keep the audit information attached to the object so export code does
+    # not have to infer identities from the folded model labels.
+    dataset._hsta_known_apps = list(known_apps or getattr(dataset.class_info, "known_apps", []))
+    dataset._hsta_unknown_apps = list(unknown_apps or getattr(dataset.class_info, "unknown_apps", []))
+    dataset._hsta_unknown_groups = unknown_groups
+    dataset._hsta_unknown_source_map = unknown_application_source_map(unknown_groups)
+    dataset._hsta_unknown_pool_complete = bool(candidate_pool_complete)
     return dataset, dataset_root
 
 
@@ -526,16 +659,22 @@ def export_csv(
     max_per_class_by_split: dict[str, int | None] | None = None,
     include_unknown: bool = True,
     unknown_source_labels: set[str] | None = None,
+    unknown_source_groups: dict[str, list[str]] | None = None,
     max_batches_per_split: int | None = None,
 ):
     out_csv = Path(out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     selected = set(classes)
     unknown_source_labels = {str(label) for label in (unknown_source_labels or set())}
-    selected.update(unknown_source_labels)
+    source_map = unknown_application_source_map(unknown_source_groups or {})
+    # Preserve compatibility with callers that only provide a set: those
+    # identities are treated as test-heldout applications.
+    source_map.update({label: "unknown_test_heldout" for label in unknown_source_labels if label not in source_map})
+    selected.update(source_map)
     if include_unknown:
         selected.add(UNKNOWN_LABEL)
     split_counts = {split: Counter() for split in ["train", "val", "test"]}
+    source_counts = {split: Counter() for split in ["train", "val", "test"]}
     packet_row_counts = {split: Counter() for split in ["train", "val", "test"]}
     split_caps = {"train": None, "val": None, "test": None}
     split_caps.update(max_per_class_by_split or {})
@@ -543,7 +682,10 @@ def export_csv(
     with out_csv.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source"],
+            fieldnames=[
+                "flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source",
+                "original_app", "source_group", "noise_family",
+            ],
         )
         writer.writeheader()
         for split in ["train", "val", "test"]:
@@ -551,12 +693,27 @@ def export_csv(
             flow_index = 0
             for batch_index, batch in enumerate(tqdm(get_loader(dataset, split), desc=f"export {split}")):
                 for ppi_one, label_raw in iter_batch(batch):
-                    label = decode_label(label_raw, dataset)
-                    if label in unknown_source_labels:
+                    original_app = decode_label(label_raw, dataset)
+                    source_group = "known"
+                    if original_app in source_map:
+                        source_group = source_map[original_app]
+                        # Real unknown applications are assigned to exactly
+                        # one temporal role before label folding.  This keeps
+                        # train support and test held-out identities disjoint.
+                        expected_group = {
+                            "train": "unknown_support",
+                            "val": "unknown_val_heldout",
+                            "test": "unknown_test_heldout",
+                        }[split]
+                        if source_group != expected_group:
+                            continue
                         label = UNKNOWN_LABEL
+                    else:
+                        label = original_app
                     if label not in selected:
                         continue
-                    if split_cap and split_counts[split][label] >= split_cap:
+                    source_key = (source_group, original_app) if label == UNKNOWN_LABEL else ("known", label)
+                    if split_cap and source_counts[split][source_key] >= split_cap:
                         continue
                     times, dirs, sizes = parse_ppi(ppi_one, seq_len)
                     if len(sizes) == 0:
@@ -564,6 +721,7 @@ def export_csv(
                     flow_id = f"{split}_{flow_index}"
                     flow_index += 1
                     split_counts[split][label] += 1
+                    source_counts[split][source_key] += 1
                     for pkt_index in range(min(seq_len, len(sizes))):
                         writer.writerow(
                             {
@@ -575,14 +733,34 @@ def export_csv(
                                 "delta_time": float(times[pkt_index]) if pkt_index < len(times) else 0.0,
                                 "split": split,
                                 "source": "datazoo",
+                                "original_app": original_app,
+                                "source_group": source_group,
+                                "noise_family": "",
                             }
                         )
                         packet_rows += 1
                         packet_row_counts[split][label] += 1
-                cap_labels = list(classes)
-                if include_unknown and split != "train":
-                    cap_labels.append(UNKNOWN_LABEL)
-                if split_cap and all(split_counts[split][c] >= split_cap for c in cap_labels):
+                expected_unknown = {
+                    (group, app)
+                    for app, group in source_map.items()
+                    if group == {
+                        "train": "unknown_support",
+                        "val": "unknown_val_heldout",
+                        "test": "unknown_test_heldout",
+                    }[split]
+                }
+                known_keys = {("known", label) for label in classes}
+                known_ready = bool(split_cap) and all(
+                    source_counts[split][key] >= int(split_cap) for key in known_keys
+                )
+                # Some candidate applications have no flow in a date window.
+                # Require every candidate with an assigned role to be observed
+                # before stopping; absent candidates remain listed in the audit
+                # report without fabricating samples.
+                unknown_ready = split == "val" or all(
+                    source_counts[split][key] > 0 for key in expected_unknown
+                )
+                if split_cap and known_ready and (not expected_unknown or unknown_ready):
                     break
                 if max_batches_per_split and batch_index + 1 >= max_batches_per_split:
                     break
@@ -595,6 +773,7 @@ def append_synthetic_unknown(
     noise_per_split: dict[str, int] | None = None,
     noise_ratio: float = 0.05,
     seed: int = 42,
+    noise_families: dict[str, str] | None = None,
 ) -> dict[str, int]:
     """Append deterministic synthetic unknown flows to an exported CSV.
 
@@ -608,6 +787,7 @@ def append_synthetic_unknown(
         raise FileNotFoundError(csv_path)
     noise_per_split = dict(noise_per_split or {})
     rng = np.random.default_rng(seed)
+    noise_families = {**DEFAULT_NOISE_FAMILIES, **(noise_families or {})}
     rows_by_split = Counter()
     reservoir: list[tuple[float, float, float]] = []
     reservoir_limit = 10000
@@ -655,9 +835,29 @@ def append_synthetic_unknown(
         for split in ("train", "val", "test"):
             for flow_index in range(counts[split]):
                 flow_id = f"synthetic_{split}_{flow_index}"
-                # Larger perturbations generate a broad unknown support while
-                # keeping values in physically meaningful packet ranges.
-                flow = rng.normal(center, scale * 2.5, size=(seq_len, 3)).astype(np.float32)
+                family = str(noise_families[split])
+                # All parameters come from train rows.  Families deliberately
+                # differ by split so validation/test unknowns are generated by
+                # mechanisms absent from training.
+                if family == "gaussian_iid_v1":
+                    flow = rng.normal(center, scale * 2.5, size=(seq_len, 3)).astype(np.float32)
+                elif family == "shuffle_spike_v2":
+                    flow = rng.normal(center, scale * 1.75, size=(seq_len, 3)).astype(np.float32)
+                    for channel in (0, 2):
+                        flow[:, channel] = rng.permutation(flow[:, channel])
+                    spike_count = max(1, seq_len // 8)
+                    spike_idx = rng.choice(seq_len, spike_count, replace=False)
+                    flow[spike_idx, 0] += rng.normal(scale=scale[0] * 8.0, size=spike_count)
+                    flow[spike_idx, 2] += rng.normal(scale=scale[2] * 8.0, size=spike_count)
+                elif family == "mixture_burst_v3":
+                    component = rng.integers(0, 2, size=(seq_len, 1))
+                    broad = rng.normal(center, scale * 0.75, size=(seq_len, 3))
+                    burst = rng.normal(center, scale * 5.0, size=(seq_len, 3))
+                    flow = np.where(component == 0, broad, burst).astype(np.float32)
+                    start = int(rng.integers(0, max(1, seq_len - 4)))
+                    flow[start : start + 4, 0] *= 4.0
+                else:
+                    raise ValueError(f"unknown synthetic noise family: {family}")
                 flow[:, 0] = np.clip(np.abs(flow[:, 0]), 0.0, 2**16 - 1)
                 flow[:, 1] = rng.choice(direction_values, size=seq_len)
                 flow[:, 2] = np.clip(np.abs(flow[:, 2]), 0.0, None)
@@ -672,8 +872,17 @@ def append_synthetic_unknown(
                             "delta_time": float(delta_time),
                             "split": split,
                             "source": "synthetic_noise",
+                            "original_app": f"synthetic_noise::{family}",
+                            "source_group": f"noise_{split}",
+                            "noise_family": family,
                         }
                     )
+    append_synthetic_unknown.last_metadata = {
+        "noise_families": noise_families,
+        "source_groups": {split: f"noise_{split}" for split in ("train", "val", "test")},
+        "seed": int(seed),
+        "parameters_fit_from": "train_rows",
+    }
     return counts
 
 
@@ -695,7 +904,8 @@ def export_datazoo_open_set(
     datazoo_batch_size: int = 64,
     datazoo_test_batch_size: int = 64,
     datazoo_workers: int = 0,
-    unknown_count: int = 5,
+    unknown_count: int | None = None,
+    unknown_split_seed: int = 599,
     noise_ratio: float = 0.05,
     noise_seed: int = 42,
     temporal_split: bool = True,
@@ -716,12 +926,13 @@ def export_datazoo_open_set(
         workers=datazoo_workers,
         known_topk=topk,
         unknown_count=unknown_count,
+        unknown_split_seed=unknown_split_seed,
         temporal_split=temporal_split,
     )
     if out_csv is None:
         out_csv = root / "data" / "processed" / f"datazoo_{dataset_name}{topk}_{size.lower()}.csv"
     if classes is None:
-        classes = [str(x) for x in getattr(dataset.class_info, "known_apps", [])]
+        classes = [str(x) for x in getattr(dataset, "_hsta_known_apps", getattr(dataset.class_info, "known_apps", []))]
         scan_counter = Counter()
         if not classes:
             classes, scan_counter = scan_classes(dataset, topk=topk, scan_batches=scan_batches)
@@ -729,6 +940,8 @@ def export_datazoo_open_set(
         classes = [str(x) for x in classes]
         scan_counter = Counter()
 
+    unknown_groups = getattr(dataset, "_hsta_unknown_groups", {})
+    unknown_pool = list(getattr(dataset, "_hsta_unknown_apps", []))
     counts, packet_rows, packet_row_counts = export_csv(
         dataset,
         out_csv=out_csv,
@@ -739,8 +952,9 @@ def export_datazoo_open_set(
             "val": max_val_per_class,
             "test": max_test_per_class,
         },
-        include_unknown=bool(unknown_count > 0),
-        unknown_source_labels={str(x) for x in getattr(dataset.class_info, "unknown_apps", [])},
+        include_unknown=bool(unknown_pool),
+        unknown_source_labels=set(),
+        unknown_source_groups=unknown_groups,
         max_batches_per_split=max_export_batches,
     )
     noise_counts = append_synthetic_unknown(
@@ -753,7 +967,8 @@ def export_datazoo_open_set(
         counts.setdefault(split, Counter())[UNKNOWN_LABEL] += int(flow_count)
         packet_row_counts.setdefault(split, Counter())[UNKNOWN_LABEL] += int(flow_count) * int(seq_len)
         packet_rows += int(flow_count) * int(seq_len)
-    report_classes = list(classes) + ([UNKNOWN_LABEL] if unknown_count > 0 else [])
+    source_counts = scan_processed_source_counts(out_csv)
+    report_classes = list(classes) + ([UNKNOWN_LABEL] if unknown_pool else [])
     servicemap_path = infer_servicemap_path(dataset_name, size=size, project_root=root)
     service_by_id = load_servicemap(servicemap_path)
     class_summary, class_count_summary = build_class_report(
@@ -770,13 +985,21 @@ def export_datazoo_open_set(
         "servicemap_path": _project_path(servicemap_path, root) if servicemap_path else "",
         "seq_len": seq_len,
         "classes": report_classes,
-        "unknown_label": UNKNOWN_LABEL if unknown_count > 0 else "",
-        "unknown_apps": [str(x) for x in getattr(dataset.class_info, "unknown_apps", [])],
+        "unknown_label": UNKNOWN_LABEL if unknown_pool else "",
+        "known_apps": [str(x) for x in getattr(dataset, "_hsta_known_apps", classes)],
+        "unknown_apps": unknown_pool,
+        "unknown_candidate_pool": unknown_pool,
+        "unknown_candidate_pool_complete": bool(getattr(dataset, "_hsta_unknown_pool_complete", False)),
+        "unknown_application_groups": unknown_groups,
+        "unknown_split_seed": int(unknown_split_seed),
         "synthetic_noise_flows_by_split": noise_counts,
+        "synthetic_noise": getattr(append_synthetic_unknown, "last_metadata", {}),
         "temporal_split": bool(temporal_split),
         "scan_counter_top30": dict(scan_counter.most_common(30)),
         "flow_count_by_split": _split_counter_dict(counts),
         "packet_row_count_by_split": _split_counter_dict(packet_row_counts),
+        "source_group_flow_count_by_split": _split_counter_dict(source_counts["source_group"]),
+        "original_app_flow_count_by_split": _split_counter_dict(source_counts["original_app"]),
         "packet_rows": packet_rows,
         "class_summary": class_summary,
         "class_count_summary": class_count_summary,
@@ -789,7 +1012,7 @@ def export_datazoo_open_set(
         "datazoo_batch_size": datazoo_batch_size,
         "datazoo_test_batch_size": datazoo_test_batch_size,
         "datazoo_workers": datazoo_workers,
-        "unknown_count": int(unknown_count),
+        "unknown_count": None if unknown_count is None else int(unknown_count),
         "noise_ratio": float(noise_ratio),
     }
     report_path = Path(out_csv).with_suffix(".report.json")
