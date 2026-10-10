@@ -13,14 +13,16 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && sour
 
 ## 数据准备
 
-使用现有 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件。预处理为 100 个已知类别，每个日期划分中每类最多保留 10,000 条完整流；不足时保留全部。预处理同时写出流级 `source`、类别和日期划分，并加入配置的未知应用与合成噪声。
+使用现有 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件。官方 PPI 固定为前 30 个包的 `IPT、DIR、SIZE` 三通道，短流由 DataZoo 补零。预处理为 100 个已知类别，每个日期划分中每类最多保留 10,000 条完整流；不足时保留全部。预处理同时写出流级 `source`、类别和日期划分，并加入配置的未知应用与合成噪声。输出文件名不再附加序列长度后缀，但输入长度仍由 PPI 协议固定为 30。
+
+DataZoo 原生提供训练、验证和测试索引及 DataLoader。项目 CSV 只用于固定 unknown 应用清单、时间均衡采样和逐流来源审计；它不是完整 S 数据集的替代品。
 
 从完整 S CSV 创建小规模时间均衡数据集：
 
 ```bash
 python scripts/sample_temporal_dataset.py \
-  --input-csv data/processed/datazoo_tls100_s_seq30.csv \
-  --output-csv data/processed/datazoo_tls100_s_seq30_tiny.csv \
+  --input-csv data/processed/datazoo_tls100_s.csv \
+  --output-csv data/processed/datazoo_tls100_s_tiny.csv \
   --dataset tls --profile tiny --seed 599
 ```
 

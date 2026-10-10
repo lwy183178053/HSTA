@@ -32,11 +32,11 @@ base:
   reject_threshold_quantile: 0.95
 
 experiments:
-  - {exp_name: hsta_cm_full_tls22_s, data_csv: data/processed/datazoo_tls100_s_seq30.csv}
-  - {exp_name: hsta_cm_no_conv_tls22_s, data_csv: data/processed/datazoo_tls100_s_seq30.csv, model_cfg: {use_conv: false}}
-  - {exp_name: hsta_cm_no_mamba_tls22_s, data_csv: data/processed/datazoo_tls100_s_seq30.csv, model_cfg: {use_mamba: false}}
-  - {exp_name: hsta_cm_no_attention_tls22_s, data_csv: data/processed/datazoo_tls100_s_seq30.csv, model_cfg: {use_attention: false}}
-  - {exp_name: hsta_cm_full_quic22_s, data_csv: data/processed/datazoo_quic100_s_seq30.csv}
-  - {exp_name: hsta_cm_no_conv_quic22_s, data_csv: data/processed/datazoo_quic100_s_seq30.csv, model_cfg: {use_conv: false}}
-  - {exp_name: hsta_cm_no_mamba_quic22_s, data_csv: data/processed/datazoo_quic100_s_seq30.csv, model_cfg: {use_mamba: false}}
-  - {exp_name: hsta_cm_no_attention_quic22_s, data_csv: data/processed/datazoo_quic100_s_seq30.csv, model_cfg: {use_attention: false}}
+  - {exp_name: hsta_cm_full_tls22_s, data_csv: data/processed/datazoo_tls100_s.csv}
+  - {exp_name: hsta_cm_no_conv_tls22_s, data_csv: data/processed/datazoo_tls100_s.csv, model_cfg: {use_conv: false}}
+  - {exp_name: hsta_cm_no_mamba_tls22_s, data_csv: data/processed/datazoo_tls100_s.csv, model_cfg: {use_mamba: false}}
+  - {exp_name: hsta_cm_no_attention_tls22_s, data_csv: data/processed/datazoo_tls100_s.csv, model_cfg: {use_attention: false}}
+  - {exp_name: hsta_cm_full_quic22_s, data_csv: data/processed/datazoo_quic100_s.csv}
+  - {exp_name: hsta_cm_no_conv_quic22_s, data_csv: data/processed/datazoo_quic100_s.csv, model_cfg: {use_conv: false}}
+  - {exp_name: hsta_cm_no_mamba_quic22_s, data_csv: data/processed/datazoo_quic100_s.csv, model_cfg: {use_mamba: false}}
+  - {exp_name: hsta_cm_no_attention_quic22_s, data_csv: data/processed/datazoo_quic100_s.csv, model_cfg: {use_attention: false}}

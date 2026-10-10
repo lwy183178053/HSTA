@@ -19,7 +19,7 @@ case "$MODE" in
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --output-dir results/open_set_tls_seed599 \
-      --data-csv data/processed/datazoo_tls100_s_seq30_tiny.csv \
+      --data-csv data/processed/datazoo_tls100_s_tiny.csv \
       --only \
         hsta_cm_tls22_s_seed599 \
         hsta_cm_closed_tls22_s_seed599 \
@@ -36,7 +36,7 @@ case "$MODE" in
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --output-dir results/open_set_quic_seed599 \
-      --data-csv data/processed/datazoo_quic100_s_seq30_tiny.csv \
+      --data-csv data/processed/datazoo_quic100_s_tiny.csv \
       --only \
         hsta_cm_quic22_s_seed599 \
         hsta_cm_closed_quic22_s_seed599 \

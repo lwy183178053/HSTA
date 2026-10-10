@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .sampler import enrich_processed_report, export_datazoo_open_set
+from .sampler import PPI_LEN, enrich_processed_report, export_datazoo_open_set
 
 
 def parse_size(value: str):
@@ -30,7 +30,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["tls", "quic"], default=None)
     parser.add_argument("--size", default="XS", choices=["XS", "S", "M", "L"])
-    parser.add_argument("--seq-len", type=int, default=30)
     parser.add_argument("--topk", type=int, default=100, help="number of known classes selected by DataZoo training frequency")
     parser.add_argument("--unknown-count", type=int, default=5, help="held-out application classes grouped as _unknown")
     parser.add_argument("--noise-ratio", type=float, default=0.05, help="synthetic unknown flows as a fraction of each split")
@@ -84,7 +83,7 @@ def main():
         size=args.size,
         project_root=Path(args.project_root).resolve(),
         out_csv=args.out_csv,
-        seq_len=args.seq_len,
+        seq_len=PPI_LEN,
         topk=args.topk,
         classes=args.classes,
         scan_batches=args.scan_batches,

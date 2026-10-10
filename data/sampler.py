@@ -50,6 +50,7 @@ TEMPORAL_DATE_SPLITS = {
     },
 }
 UNKNOWN_LABEL = "unknown"
+PPI_LEN = 30
 
 
 def _to_np(x):
@@ -590,7 +591,7 @@ def export_csv(
 
 def append_synthetic_unknown(
     csv_path: str | Path,
-    seq_len: int = 30,
+    seq_len: int = PPI_LEN,
     noise_per_split: dict[str, int] | None = None,
     noise_ratio: float = 0.05,
     seed: int = 42,
@@ -681,7 +682,7 @@ def export_datazoo_open_set(
     size: str,
     project_root: str | Path,
     out_csv: str | Path | None = None,
-    seq_len: int = 30,
+    seq_len: int = PPI_LEN,
     topk: int = 100,
     classes: list[str] | None = None,
     scan_batches: int = 300,
@@ -718,7 +719,7 @@ def export_datazoo_open_set(
         temporal_split=temporal_split,
     )
     if out_csv is None:
-        out_csv = root / "data" / "processed" / f"datazoo_{dataset_name}{topk}_{size.lower()}_seq{seq_len}.csv"
+        out_csv = root / "data" / "processed" / f"datazoo_{dataset_name}{topk}_{size.lower()}.csv"
     if classes is None:
         classes = [str(x) for x in getattr(dataset.class_info, "known_apps", [])]
         scan_counter = Counter()

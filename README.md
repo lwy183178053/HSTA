@@ -1,6 +1,6 @@
 # HSTA-CM：加密流量开放集识别
 
-本仓库用于在 CESNET-TLS22 和 CESNET-QUIC22 的 S 子集上训练、评估 HSTA-CM 及保留的对比模型。每条流取前 30 个数据包，每个数据包使用 3 个可观测特征：包大小、方向和到达间隔，输入形状为 `[30, 3]`。
+本仓库用于在 CESNET-TLS22 和 CESNET-QUIC22 的 S 子集上训练、评估 HSTA-CM 及保留的对比模型。官方 PPI 固定描述每条流的前 30 个数据包，每个数据包使用 3 个可观测特征：包大小、方向和到达间隔，输入形状为 `[30, 3]`。`30` 是数据集协议常量，不再作为导出文件名后缀。
 
 ## 研究设定
 
@@ -45,7 +45,7 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && sour
 
 ## 数据与实验
 
-使用已有的 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件生成 100 个已知类别：
+使用已有的 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件生成 100 个已知类别。DataZoo 本身提供按时间/索引划分的 DataLoader；当前 CSV 是为可复现的应用隔离、均衡采样和来源审计生成的缓存，不是完整 S 数据集副本：
 
 ```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048
@@ -63,7 +63,7 @@ bash scripts/run_wsl_experiments.sh efficiency
 为了快速检查流程，可先按时间窗口均衡采样，再运行 TLS 或 QUIC 的 seed 599：
 
 ```bash
-python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s_seq30.csv --output-csv data/processed/datazoo_tls100_s_seq30_tiny.csv --dataset tls --profile tiny --seed 599
+python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s.csv --output-csv data/processed/datazoo_tls100_s_tiny.csv --dataset tls --profile tiny --seed 599
 bash scripts/run_wsl_experiments.sh quick_tls
 ```
 
