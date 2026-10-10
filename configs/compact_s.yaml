@@ -25,7 +25,9 @@ base:
     d_state: 16
     d_conv: 4
     expand: 2
-    pooling: mean
+    frequency_representation: real_imag
+    fusion_mode: tokens
+    pooling: temporal_mean
     max_len: 30
     conv_kernel_size: 3
     attention_backend: flash
