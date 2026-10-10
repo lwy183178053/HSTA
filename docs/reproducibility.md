@@ -9,7 +9,7 @@ powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
 wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
 ```
 
-环境应提供当前 `mamba_ssm`、CUDA 和 PyTorch FlashAttention 后端。HSTA-CM 的注意力配置为 `attention_backend: flash`，不接受 CPU、数学实现或 memory-efficient 回退。
+环境应提供当前 `mamba_ssm`、CUDA 和 PyTorch FlashAttention 后端。HSTA-CM-DFT 的注意力配置为 `attention_backend: flash`，不接受 CPU、数学实现或 memory-efficient 回退。
 
 ## 数据准备
 
@@ -54,8 +54,8 @@ bash scripts/run_wsl_experiments.sh small_tls
 bash scripts/run_wsl_experiments.sh small_quic
 ```
 
-`main` 使用 `configs/compact_s.yaml`，`ablation` 使用 `configs/hsta_cm_ablation_s.yaml`。训练采用配置文件中的 AdamW、验证集 Macro-F1 早停和最优检查点；实际种子、模型配置、类别映射、标准化参数、FlashAttention 后端和开放集指标会写入检查点目录。
+`main` 使用 `configs/compact_s.yaml`，其中 HSTA-CM-DFT 是主模型，HSTA-CM-no-DFT 是 DFT 组件对照；`ablation` 使用 `configs/hsta_cm_ablation_s.yaml`。训练采用配置文件中的 AdamW、验证集 Macro-F1 早停和最优检查点；实际种子、模型配置、类别映射、标准化参数、FlashAttention 后端和开放集指标会写入检查点目录。
 
 ## 结果与版本管理
 
-结果、日志、数据和检查点存放在被 Git 忽略的目录中。禁止提交原始 H5、检查点、凭据或本地环境。主结果应报告已知分类指标、未知拒识指标、误拒率、参数量和效率指标；HSTA-CM-open 的三个种子报告均值和标准差。留出应用和独立噪声生成族必须保持测试专用。
+结果、日志、数据和检查点存放在被 Git 忽略的目录中。禁止提交原始 H5、检查点、凭据或本地环境。主结果应报告已知分类指标、未知拒识指标、误拒率、参数量和效率指标；HSTA-CM-DFT-open 的三个种子报告均值和标准差。留出应用和独立噪声生成族必须保持测试专用。

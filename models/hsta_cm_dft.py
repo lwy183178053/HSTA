@@ -20,9 +20,8 @@ from .mamba_model import MambaBlock
 class HSTACMDFT(nn.Module):
     """Open-set classifier with a DFT/Conv1d frequency encoder.
 
-    ``HSTACMDFT`` is a separate model variant.  The original ``HSTACM``
-    implementation is intentionally unchanged so the main benchmark remains
-    a direct time-domain reference.
+    ``HSTACMDFT`` is the main model variant.  ``HSTACM`` is retained as the
+    matched no-DFT ablation with the same residual branch depth and width.
     """
 
     layout = (
@@ -70,18 +69,17 @@ class HSTACMDFT(nn.Module):
 
         # The FFT magnitude keeps the three original packet feature channels;
         # no real/imaginary or amplitude/phase channel expansion is used.
-        # Three Conv1d layers model adjacent frequency bins with kernel 3.
-        self.frequency = nn.Sequential(
-            nn.Conv1d(input_dim, dim, kernel_size=3, padding=1),
-            nn.BatchNorm1d(dim),
-            nn.GELU(),
-            nn.Dropout1d(dropout),
-            nn.Conv1d(dim, dim, kernel_size=3, padding=1),
-            nn.BatchNorm1d(dim),
-            nn.GELU(),
-            nn.Dropout1d(dropout),
-            nn.Conv1d(dim, dim, kernel_size=3, padding=1),
-            nn.GELU(),
+        # Each of the three Conv1d layers has its own residual connection.
+        self.frequency = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv1d(dim, dim, kernel_size=3, padding=1),
+                    nn.BatchNorm1d(dim),
+                    nn.GELU(),
+                    nn.Dropout1d(dropout),
+                )
+                for _ in range(3)
+            ]
         )
         self.frequency_residual = nn.Conv1d(input_dim, dim, kernel_size=1)
         self.frequency_pool = nn.AdaptiveAvgPool1d(1)
@@ -128,7 +126,9 @@ class HSTACMDFT(nn.Module):
         # before the convolution branch.
         spectrum = torch.fft.rfft(x.float(), dim=1, norm="ortho").permute(0, 2, 1)
         frequency_input = spectrum.abs().to(dtype=x.dtype)
-        encoded = self.frequency(frequency_input) + self.frequency_residual(frequency_input)
+        encoded = self.frequency_residual(frequency_input)
+        for block in self.frequency:
+            encoded = encoded + block(encoded)
         return self.frequency_pool(encoded).flatten(1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

@@ -51,7 +51,7 @@ def test_configs_do_not_reference_removed_tasks_or_models():
             assert token not in text, f"{path.name} still references removed {token}"
 
 
-def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
+def test_compact_matrix_contains_dft_primary_model_and_no_dft_ablation():
     path = CONFIG_DIR / "compact_s.yaml"
     if not path.exists():
         return
@@ -85,14 +85,20 @@ def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
     ]
     assert {exp["exp_name"] for exp in dft_experiments} == {
         "hsta_cm_dft_tls22_s_seed599",
+        "hsta_cm_dft_tls22_s_seed5009",
+        "hsta_cm_dft_tls22_s_seed813",
+        "hsta_cm_dft_closed_tls22_s_seed599",
         "hsta_cm_dft_quic22_s_seed599",
+        "hsta_cm_dft_quic22_s_seed5009",
+        "hsta_cm_dft_quic22_s_seed813",
+        "hsta_cm_dft_closed_quic22_s_seed599",
     }
-    assert all(int(exp["seed"]) == 599 for exp in dft_experiments)
+    assert {int(exp["seed"]) for exp in dft_experiments} == {599, 5009, 813}
     hsta_experiments = [
         exp for exp in cfg.get("experiments", [])
         if str(exp.get("model", "")).lower() == "hsta-cm"
     ]
-    assert {int(exp["seed"]) for exp in hsta_experiments} == {599, 5009, 813}
+    assert {int(exp["seed"]) for exp in hsta_experiments} == {599}
     by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
     for exp_name in ("tcnet_tls22_s", "tcnet_quic22_s"):
         assert by_name[exp_name]["model_cfg"]["depth"] == 5
@@ -109,8 +115,14 @@ def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
     assert model_cfg.get("attention_backend") == "flash"
     by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
     assert all(by_name[name].get("train_unknown", True) for name in (
-        "hsta_cm_tls22_s_seed599", "hsta_cm_dft_tls22_s_seed599",
-        "hsta_cm_quic22_s_seed599", "hsta_cm_dft_quic22_s_seed599",
+        "hsta_cm_dft_tls22_s_seed599", "hsta_cm_dft_tls22_s_seed5009",
+        "hsta_cm_dft_tls22_s_seed813", "hsta_cm_no_dft_tls22_s_seed599",
+        "hsta_cm_dft_quic22_s_seed599", "hsta_cm_dft_quic22_s_seed5009",
+        "hsta_cm_dft_quic22_s_seed813", "hsta_cm_no_dft_quic22_s_seed599",
+    ))
+    assert all(not by_name[name].get("train_unknown", True) for name in (
+        "hsta_cm_dft_closed_tls22_s_seed599",
+        "hsta_cm_dft_closed_quic22_s_seed599",
     ))
     assert all(not by_name[name].get("train_unknown", True) for name in (
         "tcnet_tls22_s", "netmamba_tls22_s", "srvit_tls22_s",

@@ -13,8 +13,9 @@ class HSTACM(nn.Module):
     """Open-set classifier for fixed 30-packet, three-feature flows.
 
     ``use_conv``, ``use_mamba`` and ``use_attention`` disable one component
-    at a time for controlled ablations. The default keeps the full HSTA-CM
-    architecture used by the main experiments.
+    at a time for controlled ablations. This class is the no-DFT reference:
+    its residual Conv1d branch has the same depth and width as the DFT model's
+    frequency branch, but operates directly on the packet sequence.
     """
 
     layout = ("conv1d_x3_residual", "mamba_x2_residual", "fusion_fc", "flash_attention", "norm_head")
@@ -63,13 +64,14 @@ class HSTACM(nn.Module):
         layout.append("norm_head")
         self.layout = tuple(layout)
         if self.use_conv:
-            self.spatial = nn.Sequential(
-                nn.Conv1d(input_dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
-                nn.BatchNorm1d(dim), nn.GELU(), nn.Dropout(dropout),
-                nn.Conv1d(dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
-                nn.BatchNorm1d(dim), nn.GELU(), nn.Dropout(dropout),
-                nn.Conv1d(dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
-                nn.GELU(),
+            self.spatial = nn.ModuleList(
+                [
+                    nn.Sequential(
+                        nn.Conv1d(dim, dim, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
+                        nn.BatchNorm1d(dim), nn.GELU(), nn.Dropout(dropout),
+                    )
+                    for _ in range(3)
+                ]
             )
             self.spatial_residual = nn.Conv1d(input_dim, dim, kernel_size=1)
         else:
@@ -102,7 +104,9 @@ class HSTACM(nn.Module):
             raise ValueError(f"seq_len={seq_len} exceeds max_len={self.max_len}")
         x_channels = x.transpose(1, 2)
         if self.use_conv:
-            spatial = self.spatial(x_channels) + self.spatial_residual(x_channels)
+            spatial = self.spatial_residual(x_channels)
+            for block in self.spatial:
+                spatial = spatial + block(spatial)
             spatial = spatial.transpose(1, 2)
         else:
             spatial = x.new_zeros(x.shape[0], seq_len, self.fusion_fc[0].in_features // 2)

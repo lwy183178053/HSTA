@@ -13,8 +13,8 @@ def main() -> None:
         raise FileNotFoundError(f"Missing {path}; run scripts/run_wsl_experiments.sh compact_s first")
     df = pd.read_csv(path)
     model_names = {
-        "hsta-cm": "HSTA-CM",
-        "hsta_cm": "HSTA-CM",
+        "hsta-cm": "HSTA-CM-no-DFT",
+        "hsta_cm": "HSTA-CM-no-DFT",
         "hsta-cm-dft": "HSTA-CM-DFT",
         "hsta_cm_dft": "HSTA-CM-DFT",
         "30pkttcnet-adapted": "30pktTCNET-adapted",

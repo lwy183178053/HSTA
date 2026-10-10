@@ -10,16 +10,16 @@
 
 主比较包含：
 
-- HSTA-CM-open：训练 100 个已知类和显式 `unknown` 类（101 类），使用种子 `599、5009、813`。
-- HSTA-CM-closed：同一结构但不训练 `unknown`，作为拒识训练对照。
+- HSTA-CM-DFT-open：以 DFT 频谱卷积分支、Mamba 时序分支和 FlashAttention 为主结构，训练 100 个已知类和显式 `unknown` 类（101 类），使用种子 `599、5009、813`。
+- HSTA-CM-DFT-closed：保持 DFT 主结构但不训练 `unknown`，作为拒识训练对照。
+- HSTA-CM-no-DFT：移除 DFT、保留时域卷积分支的组件消融，先用 seed `599` 检查 DFT 是否带来增益。
 - 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted、BPF-GNN-adapted：100 类闭集训练，不使用未知标签；紧凑重跑暂用 seed `599`。
-- HSTA-CM-DFT：每个数据集一个 seed `599` 的频域扩展结果，单独报告。
 
 “compact”表示数据量或实验矩阵精简，不表示低参数量模型。所有采样规模使用相同的模型超参数。
 
 ## 开放集验证
 
-测试集混合已知流量、训练中未出现的真实应用流量和未见过的噪声生成族。HSTA-CM-open 直接输出 `unknown`；闭集模型使用 `1 - max(softmax)`，阈值仅由已知验证流量的 95% 接受分位点确定，不使用未知测试样本调阈值。
+测试集混合已知流量、训练中未出现的真实应用流量和未见过的噪声生成族。HSTA-CM-DFT-open 直接输出 `unknown`；闭集模型使用 `1 - max(softmax)`，阈值仅由已知验证流量的 95% 接受分位点确定，不使用未知测试样本调阈值。
 
 分别报告：
 
@@ -34,12 +34,12 @@
 
 ## 消融与效率
 
-HSTA-CM 组件消融在两个数据集上各比较三项：去掉卷积分支、去掉 Mamba 分支、去掉 FlashAttention。替代分支保持张量宽度和训练协议一致，消融模型仍使用显式 `unknown` 训练。
+HSTA-CM-DFT 的关键组件消融是 no-DFT 与完整 DFT 主模型的对照。现有 `hsta_cm_ablation_s.yaml` 另提供时域 HSTA-CM 的 no-conv、no-Mamba 和 no-attention 检查；这些结果需标注为时域结构消融，不得写成 DFT 主模型的直接组件消融。所有消融保持张量宽度和训练协议一致，仍使用显式 `unknown` 训练。
 
 效率实验只测 batch size `1、8、32`，报告参数量、MACs/FLOPs、延迟、吞吐量和 CUDA 峰值显存，不计入数据加载时间。
 
-40 类、60 类、独立 GRU、独立 Transformer、层数/宽度扫描和旧证据包不再属于当前实验矩阵。DFT 只作为扩展实验，不扩展主对比和消融矩阵。
+40 类、60 类、独立 GRU、独立 Transformer、层数/宽度扫描和旧证据包不再属于当前实验矩阵。DFT 已是 HSTA-CM 主模型，no-DFT 作为组件消融，不列为独立主对比模型。
 
 ## 结果报告
 
-HSTA-CM-open 的三次种子结果报告均值和标准差。对比模型当前只有 seed 599 时，按单次结果报告，不填写虚假的标准差。旧目录 `results/compact_s_tls_seed599` 使用了所有模型都训练 `unknown` 的旧协议，只作流程检查。
+HSTA-CM-DFT-open 的三次种子结果报告均值和标准差。no-DFT 与对比模型当前只有 seed 599 时，按单次结果报告，不填写虚假的标准差。旧目录 `results/compact_s_tls_seed599` 使用了所有模型都训练 `unknown` 的旧协议，只作流程检查。

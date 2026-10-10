@@ -1,15 +1,16 @@
 # HSTA-CM：加密流量开放集识别
 
-本仓库用于在 CESNET-TLS22 和 CESNET-QUIC22 的 S 子集上训练、评估 HSTA-CM 及保留的对比模型。官方 PPI 固定描述每条流的前 30 个数据包，每个数据包使用 3 个可观测特征：包大小、方向和到达间隔，输入形状为 `[30, 3]`。`30` 是数据集协议常量，不再作为导出文件名后缀。
+本仓库用于在 CESNET-TLS22 和 CESNET-QUIC22 的 S 子集上训练、评估基于 DFT 的 HSTA-CM 及保留的对比模型。官方 PPI 固定描述每条流的前 30 个数据包，每个数据包使用 3 个可观测特征：包大小、方向和到达间隔，输入形状为 `[30, 3]`。`30` 是数据集协议常量，不再作为导出文件名后缀。
 
 ## 研究设定
 
-- **HSTA-CM-open**：100 个已知类别加显式 `unknown` 类（共 101 类）。训练时加入未知支持流量，用于学习拒识边界。
-- **HSTA-CM-closed 与对比模型**：只训练 100 个已知类别，不使用 `unknown` 标签。开放集测试时用验证集校准的置信度阈值拒识。
+- **HSTA-CM-DFT-open**：DFT 频谱卷积分支与 Mamba 时序分支融合，输出 100 个已知类别加显式 `unknown` 类（共 101 类）。训练时加入未知支持流量，用于学习拒识边界。
+- **HSTA-CM-DFT-closed**：保持 DFT 主架构但不训练 `unknown` 标签，开放集测试时用验证集校准的置信度阈值拒识。
+- **HSTA-CM-no-DFT**：去掉 DFT、保留时域卷积分支的组件消融，使用与主模型相同的开放集训练协议。
 - 训练、验证、测试按日期划分，未知测试流量包括留出的真实应用和独立生成的噪声流量。
 - “compact”只表示实验矩阵或采样规模较小，不表示模型参数量较少。所有采样配置使用相同模型结构。
 
-HSTA-CM 的结构和 DFT 扩展见 [docs/architecture.md](docs/architecture.md)。完整开放集数据构造、unknown 隔离、指标和执行顺序以 [docs/experiment_protocol.md](docs/experiment_protocol.md) 为准。实验范围概览见 [docs/experiment_scope.md](docs/experiment_scope.md)，环境与复现步骤见 [docs/reproducibility.md](docs/reproducibility.md)。
+HSTA-CM-DFT 主结构和 no-DFT 消融见 [docs/architecture.md](docs/architecture.md)。完整开放集数据构造、unknown 隔离、指标和执行顺序以 [docs/experiment_protocol.md](docs/experiment_protocol.md) 为准。实验范围概览见 [docs/experiment_scope.md](docs/experiment_scope.md)，环境与复现步骤见 [docs/reproducibility.md](docs/reproducibility.md)。
 
 保留的对比实现为 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted 和 BPF-GNN-adapted。它们统一使用 `[30, 3]` 输入，只保留各参考方法的主要建模思想，不宣称复现原论文的原始字节、图像、音频或旁信息管线。GRU 和独立 Transformer 不再作为单独对比模型；TrafficAudio 内部的 BiGRU 仍属于该方法本身。
 

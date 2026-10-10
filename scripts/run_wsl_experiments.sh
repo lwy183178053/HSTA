@@ -13,17 +13,16 @@ case "$MODE" in
     python run_experiments.py --config configs/compact_s.yaml --resume
     ;;
   small_tls|open_set_tls_seed599)
-    # One deterministic TLS22-S small run with HSTA-open, HSTA-closed and
-    # closed-set baselines. The old compact_s_tls_seed599 directory contains
-    # the pre-protocol 101-way baseline results and is not comparable.
+    # One deterministic TLS22-S small run with DFT-HSTA-open, its closed-set
+    # unknown ablation, the no-DFT component ablation and retained baselines.
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --output-dir results/open_set_tls_seed599 \
       --data-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv \
       --only \
-        hsta_cm_tls22_s_seed599 \
-        hsta_cm_closed_tls22_s_seed599 \
         hsta_cm_dft_tls22_s_seed599 \
+        hsta_cm_dft_closed_tls22_s_seed599 \
+        hsta_cm_no_dft_tls22_s_seed599 \
         tcnet_tls22_s \
         netmamba_tls22_s \
         srvit_tls22_s \
@@ -38,9 +37,9 @@ case "$MODE" in
       --output-dir results/open_set_quic_seed599 \
       --data-csv data/processed/datazoo_quic100_s_protocol_small_sampled.csv \
       --only \
-        hsta_cm_quic22_s_seed599 \
-        hsta_cm_closed_quic22_s_seed599 \
         hsta_cm_dft_quic22_s_seed599 \
+        hsta_cm_dft_closed_quic22_s_seed599 \
+        hsta_cm_no_dft_quic22_s_seed599 \
         tcnet_quic22_s \
         netmamba_quic22_s \
         srvit_quic22_s \
