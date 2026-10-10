@@ -18,6 +18,45 @@ from models import build_model
 from utils import count_parameters, ensure_dir, save_json, seed_everything
 
 
+# ``metrics.json`` remains the complete audit record.  CSV summaries are kept
+# intentionally small so model comparisons do not repeat every raw/threshold
+# field and per-class report column.
+SUMMARY_COLUMNS = (
+    "exp_name",
+    "model",
+    "seed",
+    "train_unknown",
+    "early_stop_metric",
+    "layout",
+    "epochs_run",
+    "best_epoch",
+    "stop_reason",
+    "best_val_metric",
+    "total_params",
+    "trainable_params",
+    "seconds",
+    "test_accuracy",
+    "test_macro_f1",
+    "test_raw_open_set_macro_f1",
+    "test_threshold_open_set_macro_f1",
+    "test_threshold_known_accuracy",
+    "test_threshold_known_macro_f1",
+    "test_threshold_unknown_precision",
+    "test_threshold_unknown_recall",
+    "test_threshold_unknown_f1",
+    "test_threshold_unknown_auroc",
+    "test_threshold_unknown_aupr",
+    "test_threshold_known_false_unknown_rate",
+    "test_threshold_unknown_false_known_rate",
+)
+
+
+def compact_result(result: dict) -> dict:
+    """Return the paper-facing scalar result view while retaining full JSON."""
+
+    return {column: result.get(column, float("nan")) for column in SUMMARY_COLUMNS}
+
+
 def _autocast(enabled: bool):
     return torch.amp.autocast(device_type="cuda", enabled=enabled)
 
@@ -172,17 +211,48 @@ def _load_state_dict(path: Path, device):
     return checkpoint
 
 
+def load_model_state(model, state_dict: dict, context: str = "checkpoint"):
+    """Load a checkpoint while allowing explicitly approved new parameters.
+
+    DFT probes created before the learnable ``dft_scale`` parameter was added
+    can continue training with that scalar initialized from the current model
+    configuration. Shape changes and unrelated missing keys still fail loudly.
+    """
+
+    try:
+        model.load_state_dict(state_dict)
+        return
+    except RuntimeError as strict_error:
+        try:
+            incompatible = model.load_state_dict(state_dict, strict=False)
+        except RuntimeError:
+            raise strict_error
+        missing = set(incompatible.missing_keys)
+        unexpected = set(incompatible.unexpected_keys)
+        if unexpected or not missing.issubset({"dft_scale"}):
+            raise strict_error
+        print(f"[checkpoint] {context}: initialized new parameter(s): {sorted(missing)}")
+
+
 def _load_training_checkpoint(path: Path, model, optimizer, scaler, scheduler, device, load_optimizer: bool = True):
     checkpoint = torch.load(path, map_location=device)
     if not isinstance(checkpoint, dict) or "state_dict" not in checkpoint:
         raise ValueError(f"Invalid training checkpoint: {path}")
-    model.load_state_dict(checkpoint["state_dict"])
+    load_model_state(model, checkpoint["state_dict"], context=str(path))
+    optimizer_restored = bool(load_optimizer)
     if load_optimizer and checkpoint.get("optimizer_state_dict") is not None:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    if load_optimizer and checkpoint.get("scaler_state_dict") is not None:
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        except ValueError as error:
+            if "parameter group" not in str(error).lower():
+                raise
+            optimizer_restored = False
+            print(f"[checkpoint] {path}: optimizer state reset after parameter layout changed")
+    if optimizer_restored and load_optimizer and checkpoint.get("scaler_state_dict") is not None:
         scaler.load_state_dict(checkpoint["scaler_state_dict"])
-    if load_optimizer and scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
+    if optimizer_restored and load_optimizer and scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    return checkpoint, optimizer_restored
     return checkpoint
 
 
@@ -229,7 +299,7 @@ def train_one(cfg: dict):
         and best_path.exists()
         and history_path.exists()
         and not latest_path.exists()
-        and not summary_path.exists()
+        and (extend_training or not summary_path.exists())
     )
     total_params, trainable_params = count_parameters(model)
     trainable = [param for param in model.parameters() if param.requires_grad]
@@ -277,8 +347,13 @@ def train_one(cfg: dict):
     scaler = _grad_scaler(use_amp)
     start_epoch = 1
     if resume_candidate:
-        load_optimizer = not (extend_training and bool(cfg.get("reset_optimizer_on_extend", True)))
-        checkpoint = _load_training_checkpoint(latest_path, model, optimizer, scaler, scheduler, device, load_optimizer=load_optimizer)
+        # Extension is a continuation of the existing optimization trajectory.
+        # Resetting the optimizer remains available as an explicit opt-in for
+        # experiments that intentionally want a fresh LR/momentum state.
+        load_optimizer = not (extend_training and bool(cfg.get("reset_optimizer_on_extend", False)))
+        checkpoint, optimizer_restored = _load_training_checkpoint(
+            latest_path, model, optimizer, scaler, scheduler, device, load_optimizer=load_optimizer
+        )
         history = checkpoint.get("history", [])
         start_epoch = int(checkpoint.get("epoch", 0)) + 1
         best = float(checkpoint.get("best", best))
@@ -293,9 +368,22 @@ def train_one(cfg: dict):
             stop_reason = ""
         start = time.time()
         action = "extending" if extend_training else "continuing"
-        optimizer_note = "reset optimizer" if not load_optimizer else "restored optimizer"
+        optimizer_note = "restored optimizer" if optimizer_restored else "reset optimizer after parameter change"
         print(f"[resume] loaded {latest_path}; {action} at epoch {start_epoch}/{epochs} ({optimizer_note})")
     elif resume_best_only_candidate:
+        # A completed run may have lost latest.pt (for example after copying
+        # only the selected checkpoint).  When extending, restore the best
+        # model and, for new checkpoints, its optimizer/scheduler state rather
+        # than silently starting again at epoch 1.
+        checkpoint, _ = _load_training_checkpoint(
+            best_path,
+            model,
+            optimizer,
+            scaler,
+            scheduler,
+            device,
+            load_optimizer=not (extend_training and bool(cfg.get("reset_optimizer_on_extend", False))),
+        )
         history_df = pd.read_csv(history_path)
         if early_metric in history_df.columns:
             metric_values = pd.to_numeric(history_df[early_metric], errors="coerce")
@@ -308,11 +396,25 @@ def train_one(cfg: dict):
             best_idx = finite_metrics.idxmin() if early_mode == "min" else finite_metrics.idxmax()
             history = history_df.to_dict("records")
             best = float(history_df.loc[best_idx, early_metric])
-            best_epoch = int(history_df.loc[best_idx, "epoch"])
+            best_epoch = int(checkpoint.get("best_epoch", history_df.loc[best_idx, "epoch"]))
+            checkpoint_epoch = int(checkpoint.get("epoch", best_epoch))
             stopped_epoch = int(history_df.iloc[-1]["epoch"])
-            stop_reason = "recovered_interrupted_best_checkpoint"
-            start_epoch = epochs + 1
-            print(f"[resume] no latest.pt; evaluating existing best.pt from interrupted run at epoch {best_epoch}")
+            stop_reason = "recovered_best_checkpoint"
+            if extend_training:
+                # The history may contain non-improving epochs after the
+                # selected best checkpoint. Continue after the latest recorded
+                # epoch so an interrupted copy-only run never duplicates rows.
+                history_last_epoch = int(history_df.iloc[-1]["epoch"])
+                start_epoch = max(checkpoint_epoch, history_last_epoch) + 1
+                if bool(cfg.get("reset_patience_on_extend", True)):
+                    bad_epochs = 0
+                    stopped_epoch = 0
+                    stop_reason = ""
+                action = "extending"
+            else:
+                start_epoch = epochs + 1
+                action = "evaluating"
+            print(f"[resume] no latest.pt; {action} from best.pt at epoch {checkpoint_epoch}/{epochs}")
         else:
             print(f"[resume] {history_path} has no finite {early_metric}; restarting {cfg['exp_name']}")
 
@@ -415,24 +517,11 @@ def train_one(cfg: dict):
             save_latest(epoch)
             print(f"[warn] {cfg['exp_name']} epoch {epoch}: non-finite {early_metric}; stopping this experiment")
             break
-        if _metric_improved(metric_value, best, early_mode, min_delta):
+        improved = _metric_improved(metric_value, best, early_mode, min_delta)
+        if improved:
             best = metric_value
             best_epoch = epoch
             bad_epochs = 0
-            attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
-            torch.save(
-                {
-                    "state_dict": model.state_dict(),
-                    "config": cfg,
-                    "input_dim": loaders["input_dim"],
-                    "num_classes": loaders["num_classes"],
-                    "classes": loaders["classes"],
-                    "feature_cols": loaders["feature_cols"],
-                    "scaler": scaler_metadata,
-                    "attention_runtime": attention_runtime,
-                },
-                best_path,
-            )
         else:
             bad_epochs += 1
         if scheduler is not None:
@@ -449,13 +538,43 @@ def train_one(cfg: dict):
             row["stop_reason"] = ""
         history.append(row)
         pd.DataFrame(history).to_csv(output_dir / "history.csv", index=False)
+        if improved:
+            attention_runtime = _attention_runtime_metadata(model, cfg, device, use_amp)
+            torch.save(
+                {
+                    "state_dict": model.state_dict(),
+                    # Keep the selected checkpoint self-contained so an
+                    # interrupted/copy-only run can be extended without
+                    # reinitializing AdamW or the LR scheduler.
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scaler_state_dict": scaler.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+                    "config": cfg,
+                    "input_dim": loaders["input_dim"],
+                    "num_classes": loaders["num_classes"],
+                    "classes": loaders["classes"],
+                    "feature_cols": loaders["feature_cols"],
+                    "scaler": scaler_metadata,
+                    "epoch": int(epoch),
+                    "history": history,
+                    "best": float(best),
+                    "best_epoch": int(best_epoch),
+                    "bad_epochs": int(bad_epochs),
+                    "stopped_epoch": int(stopped_epoch),
+                    "stop_reason": stop_reason,
+                    "scheduler": scheduler_info,
+                    "elapsed_seconds": float(previous_seconds + time.time() - start),
+                    "attention_runtime": attention_runtime,
+                },
+                best_path,
+            )
         save_latest(epoch)
         if bad_epochs >= patience:
             break
 
     if not best_path.exists():
         raise RuntimeError(f"No valid checkpoint was saved for {cfg['exp_name']}. Check history.csv for non-finite losses.")
-    model.load_state_dict(_load_state_dict(best_path, device))
+    load_model_state(model, _load_state_dict(best_path, device), context=str(best_path))
     reject_threshold = None
     if bool(cfg.get("calibrate_reject_threshold", True)):
         reject_threshold = calibrate_reject_threshold(
@@ -530,7 +649,7 @@ def train_one(cfg: dict):
         },
         output_dir / "metrics.json",
     )
-    pd.DataFrame([result]).to_csv(output_dir / "summary.csv", index=False)
+    pd.DataFrame([compact_result(result)]).to_csv(output_dir / "summary.csv", index=False)
     return result
 
 

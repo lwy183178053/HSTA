@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from train import train_one
+from train import SUMMARY_COLUMNS, compact_result, train_one
 from utils import deep_merge, ensure_dir
 
 
@@ -32,6 +32,9 @@ def _merge_and_write_results(results_path: Path, new_df: pd.DataFrame, configure
         df = new_df
     if configured_names is not None and "exp_name" in df.columns:
         df = df[df["exp_name"].isin(configured_names)]
+    summary_columns = [column for column in SUMMARY_COLUMNS if column in df.columns]
+    if summary_columns:
+        df = df[summary_columns]
     if "test_macro_f1" in df.columns:
         df = df.sort_values("test_macro_f1", ascending=False)
     df.to_csv(results_path, index=False)
@@ -95,7 +98,7 @@ def main():
             print(f"[resume] skip completed: {merged['exp_name']}")
             rows.append(completed)
         else:
-            rows.append(train_one(merged))
+            rows.append(compact_result(train_one(merged)))
 
     if not rows:
         print("No experiments selected.")
@@ -113,11 +116,10 @@ def main():
         "exp_name",
         "model",
         "seed",
-        "layout",
-        "seq_len",
-        "test_accuracy",
-        "test_macro_f1",
-        "trainable_params",
+        "test_threshold_open_set_macro_f1",
+        "test_threshold_known_macro_f1",
+        "test_threshold_unknown_f1",
+        "test_threshold_unknown_auroc",
         "seconds",
     ]
     print(df[[column for column in columns if column in df.columns]])

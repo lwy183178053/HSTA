@@ -56,6 +56,15 @@ bash scripts/run_wsl_experiments.sh small_quic
 
 `main` 使用 `configs/compact_s.yaml`，其中 HSTA-CM-DFT 是主模型，HSTA-CM-no-DFT 是 DFT 组件对照；`ablation` 使用 `configs/hsta_cm_ablation_s.yaml`。训练采用配置文件中的 AdamW、验证集 Macro-F1 早停和最优检查点；实际种子、模型配置、类别映射、标准化参数、FlashAttention 后端和开放集指标会写入检查点目录。
 
+正式配置的训练上限为 100 轮，验证集连续 15 轮没有改善时提前停止。运行入口默认带
+`--resume --extend`：若目录已有 `latest.pt`，从保存的 epoch 继续，并恢复模型、AdamW、GradScaler
+和学习率调度器状态；`reset_optimizer_on_extend: true` 才会显式重置优化器。首次运行没有检查点时会从第 1 轮开始。
+
+每个实验目录中的文件用途如下：`best.pt` 是验证指标最佳的检查点，`latest.pt` 是可继续训练的最近状态，
+`history.csv` 保存逐轮曲线，`summary.csv` 是精简标量表，`metrics.json` 保存完整 raw/threshold 指标、
+分类报告、混淆矩阵和配置。多个实验合并后的 `all_results.csv` 也只保留精简标量字段；论文主表再由
+`scripts/summarize_compact_results.py` 生成。
+
 ## 结果与版本管理
 
 结果、日志、数据和检查点存放在被 Git 忽略的目录中。禁止提交原始 H5、检查点、凭据或本地环境。主结果应报告已知分类指标、未知拒识指标、误拒率、参数量和效率指标；HSTA-CM-DFT-open 的三个种子报告均值和标准差。留出应用和独立噪声生成族必须保持测试专用。

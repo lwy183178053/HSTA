@@ -10,7 +10,7 @@ mkdir -p logs
 
 case "$MODE" in
   main|main_all|compact_s)
-    python run_experiments.py --config configs/compact_s.yaml --resume
+    python run_experiments.py --config configs/compact_s.yaml --resume --extend
     ;;
   small_tls|open_set_tls_seed599)
     # One deterministic TLS22-S small run with DFT-HSTA-open, its closed-set
@@ -28,7 +28,7 @@ case "$MODE" in
         srvit_tls22_s \
         trafficaudio_tls22_s \
         bpfgnn_tls22_s \
-      --resume
+      --resume --extend
     ;;
   small_quic|open_set_quic_seed599)
     # One deterministic QUIC22-S small run under the same open-set protocol.
@@ -45,10 +45,10 @@ case "$MODE" in
         srvit_quic22_s \
         trafficaudio_quic22_s \
         bpfgnn_quic22_s \
-      --resume
+      --resume --extend
     ;;
   ablation|compact_ablation_s)
-    python run_experiments.py --config configs/hsta_cm_ablation_s.yaml --resume
+    python run_experiments.py --config configs/hsta_cm_ablation_s.yaml --resume --extend
     ;;
   efficiency)
     python benchmark_efficiency.py --output-dir results/efficiency_benchmark

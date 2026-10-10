@@ -43,3 +43,11 @@ HSTA-CM-DFT 的池化结构组件消融是 no-DFT 与 pooled DFT 的对照，两
 ## 结果报告
 
 HSTA-CM-DFT-open 的三次种子结果报告均值和标准差。no-DFT 与对比模型当前只有 seed 599 时，按单次结果报告，不填写虚假的标准差。旧目录 `results/compact_s_tls_seed599` 使用了所有模型都训练 `unknown` 的旧协议，只作流程检查。
+
+论文主表使用 `scripts/summarize_compact_results.py` 生成的
+`results/compact_s/compact_summary.csv`，只保留六项最重要的比较指标：已知类别
+Accuracy、已知类别 Macro-F1、unknown F1、unknown AUROC、unknown AUPR 和整体开放集
+Macro-F1。表中的数值是阈值拒识版本；`seeds` 为参与平均的随机种子数量，`*_std` 在只有
+一个种子时留空。每次运行的 raw argmax、阈值版本、误拒/漏拒比例、分类报告、混淆矩阵和
+配置仍完整保存在对应目录的 `metrics.json` 中，供审计和附表使用；`summary.csv` 只保留训练状态和主指标，
+便于快速排序。

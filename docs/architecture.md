@@ -35,6 +35,6 @@ no-DFT 版本保留 Mamba、FlashAttention、融合层和分类头，仅将频�
 
 实数序列的 DFT 共轭对称，后半部分频率可以由前半部分恢复，因此 `rFFT` 的 16 个点已包含全部独立信息。CUDA 混合精度下先用 FP32 计算 FFT，以兼容长度 30。
 
-筛选实验固定 TLS22-S/QUIC22-S、seed `599`、30 epoch、相同 unknown 协议和 FlashAttention。TLS small 中，实虚部 Token + 时序汇聚的验证开放集 Macro-F1 约为 `0.794`，幅值 Token + 时序汇聚约为 `0.773`；QUIC small 中幅值 Token + 时序汇聚约为 `0.691`，实虚部 Token + 时序汇聚约为 `0.682`。QUIC 的 no-DFT 验证开放集 Macro-F1 约为 `0.693`，高于实虚部池化 DFT 的约 `0.667`。这些结果表明 Token 化比简单池化更值得继续验证，但尚未证明 DFT 在两个数据集上稳定优于 no-DFT；正式主结果必须按验证集预注册规则选型，再用 `599、5009、813` 三个种子在 `paper` 规模重跑。
+历史筛选实验固定 TLS22-S/QUIC22-S、seed `599`、30 epoch；它们只用于选择结构。正式配置现在把最大训练轮数设为 100，验证集连续 15 轮没有改善即提前停止。TLS small 中，实虚部 Token + 时序汇聚的验证开放集 Macro-F1 约为 `0.794`，幅值 Token + 时序汇聚约为 `0.773`；QUIC small 中幅值 Token + 时序汇聚约为 `0.691`，实虚部 Token + 时序汇聚约为 `0.682`。QUIC 的 no-DFT 验证开放集 Macro-F1 约为 `0.693`，高于实虚部池化 DFT 的约 `0.667`。正式主结果必须按验证集规则选型，再用 `599、5009、813` 三个种子在 `paper` 规模重跑。
 
 设计依据可参考 [FNet](https://arxiv.org/abs/2105.03824) 的 Fourier token mixing、[TimesNet](https://arxiv.org/abs/2210.02186) 的时序变化建模，以及 [FEDformer](https://arxiv.org/abs/2201.12740) 的频域分解思路。它们支持保留频率结构并交给后续混合器，但不意味着对只有 30 个包的流量输入必然带来增益。

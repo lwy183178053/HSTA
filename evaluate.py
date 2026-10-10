@@ -8,7 +8,7 @@ import yaml
 
 from data.dataset import make_loaders
 from models import build_model
-from train import eval_model
+from train import eval_model, load_model_state
 from utils import save_json
 
 
@@ -43,7 +43,7 @@ def main():
         cfg=cfg.get("model_cfg", {}),
     ).to(device)
     state = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
-    model.load_state_dict(state)
+    load_model_state(model, state, context=str(args.checkpoint))
     use_amp = bool(cfg.get("amp", True)) and str(device).startswith("cuda")
     metrics, _, _ = eval_model(
         model,

@@ -1,8 +1,10 @@
 base:
   output_dir: results/dft_probe_tls_s_high_capacity
   seed: 599
-  epochs: 30
-  patience: 8
+  epochs: 100
+  patience: 15
+  reset_optimizer_on_extend: false
+  reset_patience_on_extend: true
   batch_size: 256
   lr: 0.0005
   weight_decay: 0.0001
