@@ -98,6 +98,8 @@ class HSTACMDFT(nn.Module):
             ]
         )
         self.temporal_residual = nn.Identity()
+        self.frequency_norm = nn.LayerNorm(dim)
+        self.temporal_norm = nn.LayerNorm(dim)
 
         self.fusion_fc = nn.Sequential(
             nn.Linear(dim * 2, dim),
@@ -125,11 +127,12 @@ class HSTACMDFT(nn.Module):
         # 30-packet input is therefore transformed in FP32 and cast back
         # before the convolution branch.
         spectrum = torch.fft.rfft(x.float(), dim=1, norm="ortho").permute(0, 2, 1)
-        frequency_input = spectrum.abs().to(dtype=x.dtype)
+        frequency_input = torch.log1p(spectrum.abs()).to(dtype=x.dtype)
         encoded = self.frequency_residual(frequency_input)
         for block in self.frequency:
             encoded = encoded + block(encoded)
-        return self.frequency_pool(encoded).flatten(1)
+        pooled = self.frequency_pool(encoded).flatten(1)
+        return self.frequency_norm(pooled)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim != 3:
@@ -148,6 +151,7 @@ class HSTACMDFT(nn.Module):
         for block in self.temporal:
             temporal = block(temporal)
         temporal = temporal + self.temporal_residual(temporal_input)
+        temporal = self.temporal_norm(temporal)
 
         # The DFT branch summarizes the whole flow, then conditions every
         # packet token in the same gated fusion space as the temporal branch.

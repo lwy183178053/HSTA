@@ -10,6 +10,8 @@
 4. **注意力**：使用一个 PyTorch `scaled_dot_product_attention` 的 Flash 后端。配置要求 FlashAttention；CPU、数学实现和 memory-efficient 回退会被拒绝。注意力消融直接跳过该模块。
 5. **输出**：LayerNorm、平均池化后接分类头。HSTA-CM-DFT-open 输出 100 个已知类别加 `unknown`（101 类）；HSTA-CM-DFT-closed 输出 100 个已知类别。
 
+结果文件中的 `hybrid_layers` 是 `layout` 结构阶段计数，不是卷积层、Mamba 层或注意力层的总数。DFT 主模型多记录一个 FFT 阶段，因此该字段比 no-DFT 消融大 1；两者的可训练参数量不由序列长度（30 或 16）决定。
+
 ## 开放集协议
 
 HSTA-CM-DFT-open 在训练中使用声明的未知支持流量，并把测试时未见过的真实应用和独立噪声生成族映射为 `unknown`。留出的测试未知来源不能参与训练或阈值选择。
@@ -27,7 +29,7 @@ no-DFT 版本保留 Mamba、FlashAttention、融合层和分类头，仅将频�
 ## DFT 表示
 
 1. 对 30 个数据包位置沿时间轴执行 `torch.fft.rfft`，使用正交归一化。
-2. 只保留每个原始特征通道的频谱幅值，输入保持为 `[B, 3, 16]`；不拆分实部/虚部或振幅/相位，也不扩展频域矩阵。
+2. 只保留每个原始特征通道的频谱幅值并使用 `log1p` 压缩动态范围，输入保持为 `[B, 3, 16]`；不拆分实部/虚部或振幅/相位，也不扩展频域矩阵。
 3. 三层带残差的 PyTorch `Conv1d` 使用大小为 `3` 的卷积核，在相邻频率点上建模。
 4. 频域向量池化后与 Mamba 分支按主模型的门控、位置编码、FlashAttention 和分类头融合。
 

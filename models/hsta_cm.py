@@ -84,6 +84,8 @@ class HSTACM(nn.Module):
             [MambaBlock(dim, d_state=d_state, d_conv=d_conv, expand=expand, dropout=dropout) for _ in range(depth)]
         ) if self.use_mamba else nn.ModuleList()
         self.temporal_residual = nn.Identity() if self.use_mamba else None
+        self.spatial_norm = nn.LayerNorm(dim) if self.use_conv else None
+        self.temporal_norm = nn.LayerNorm(dim) if self.use_mamba else None
         self.fusion_fc = nn.Sequential(nn.Linear(dim * 2, dim), nn.GELU(), nn.Dropout(dropout))
         self.gate = nn.Sequential(nn.Linear(dim * 2, dim), nn.Sigmoid())
         self.position = nn.Parameter(torch.zeros(1, self.max_len, dim))
@@ -108,6 +110,7 @@ class HSTACM(nn.Module):
             for block in self.spatial:
                 spatial = spatial + block(spatial)
             spatial = spatial.transpose(1, 2)
+            spatial = self.spatial_norm(spatial)
         else:
             spatial = x.new_zeros(x.shape[0], seq_len, self.fusion_fc[0].in_features // 2)
         if self.use_mamba:
@@ -119,6 +122,7 @@ class HSTACM(nn.Module):
             for block in self.temporal:
                 temporal = block(temporal)
             temporal = temporal + self.temporal_residual(temporal_input)
+            temporal = self.temporal_norm(temporal)
         else:
             temporal = x.new_zeros(x.shape[0], seq_len, self.fusion_fc[0].in_features // 2)
         joined = torch.cat([spatial, temporal], dim=-1)
