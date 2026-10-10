@@ -23,9 +23,9 @@ def test_flash_attention_is_strict_and_has_no_manual_backend():
 
 @pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for mamba_ssm")
-def test_hsta_cm_has_conv_mamba_and_flash_attention_components():
+def test_hsta_cm_dft_main_has_frequency_conv_mamba_and_flash_attention_components():
     model = build_model(
-        "hsta-cm",
+        "hsta-cm-dft",
         input_dim=3,
         num_classes=101,
         seq_len=30,
