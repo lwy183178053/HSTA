@@ -9,7 +9,7 @@
 - 训练、验证、测试按日期划分，未知测试流量包括留出的真实应用和独立生成的噪声流量。
 - “compact”只表示实验矩阵或采样规模较小，不表示模型参数量较少。所有采样配置使用相同模型结构。
 
-HSTA-CM 的结构、开放集协议和 DFT 扩展见 [docs/architecture.md](docs/architecture.md)。实验范围和指标见 [docs/experiment_scope.md](docs/experiment_scope.md)，环境与复现步骤见 [docs/reproducibility.md](docs/reproducibility.md)。
+HSTA-CM 的结构和 DFT 扩展见 [docs/architecture.md](docs/architecture.md)。完整开放集数据构造、unknown 隔离、指标和执行顺序以 [docs/experiment_protocol.md](docs/experiment_protocol.md) 为准。实验范围概览见 [docs/experiment_scope.md](docs/experiment_scope.md)，环境与复现步骤见 [docs/reproducibility.md](docs/reproducibility.md)。
 
 保留的对比实现为 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted 和 BPF-GNN-adapted。它们统一使用 `[30, 3]` 输入，只保留各参考方法的主要建模思想，不宣称复现原论文的原始字节、图像、音频或旁信息管线。GRU 和独立 Transformer 不再作为单独对比模型；TrafficAudio 内部的 BiGRU 仍属于该方法本身。
 
@@ -24,7 +24,7 @@ HSTA-CM 的结构、开放集协议和 DFT 扩展见 [docs/architecture.md](docs
 | `evaluate.py` | 加载检查点并评估 |
 | `run_experiments.py` | 按 YAML 批量运行实验 |
 | `scripts/` | WSL 运行入口、时间均衡采样和结果汇总 |
-| `docs/` | 模型、实验范围和复现说明 |
+| `docs/` | 模型、实验协议、实验范围和复现说明 |
 
 `data/processed/`、`results/`、`logs/` 和检查点属于本地生成物并被 Git 忽略。原始 H5 流量、凭据和本地环境不会提交到 Git。
 
