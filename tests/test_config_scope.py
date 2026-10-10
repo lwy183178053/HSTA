@@ -22,7 +22,11 @@ def _load(name: str) -> dict:
 
 def test_only_current_configs_remain():
     names = {path.name for path in CONFIG_DIR.glob("*.yaml")}
-    assert names == {"compact_s.yaml", "hsta_cm_ablation_s.yaml"}
+    assert names == {
+        "compact_s.yaml",
+        "hsta_cm_ablation_s.yaml",
+        "hsta_cm_large_variants.yaml",
+    }
 
 
 def test_compact_matrix_is_60_class_small_seed599():
@@ -83,6 +87,27 @@ def test_ablation_matrix_is_three_by_two_open_set():
                 "hsta_cm_no_conv", "hsta_cm_no_mamba", "hsta_cm_no_attention",
             }
     assert all("60_s_protocol_small_sampled.csv" in exp["data_csv"] for exp in experiments)
+
+
+def test_large_variant_matrix_has_three_candidates_per_dataset():
+    cfg = _load("hsta_cm_large_variants.yaml")
+    base = cfg["base"]
+    experiments = cfg["experiments"]
+    assert len(experiments) == 6
+    assert base["seed"] == 599
+    assert base["epochs"] == 100
+    assert base["patience"] == 15
+    assert base["batch_size"] == 4096
+    assert base["model_cfg"]["dim"] == 256
+    assert base["model_cfg"]["use_packet_position"] is True
+    assert base["model_cfg"]["use_branch_type"] is True
+    assert all("protocol_large_sampled.csv" in exp["data_csv"] for exp in experiments)
+    assert all(exp["train_unknown"] is True for exp in experiments)
+    prefixes = {"hsta_cm_multiscale", "hsta_cm_dual_plus_dft", "hsta_cm_tri_multiscale_dft"}
+    assert {exp["exp_name"].rsplit("_tls60_s_large_seed599", 1)[0]
+            for exp in experiments if "tls60" in exp["exp_name"]} == prefixes
+    assert {exp["exp_name"].rsplit("_quic60_s_large_seed599", 1)[0]
+            for exp in experiments if "quic60" in exp["exp_name"]} == prefixes
 
 
 def test_legacy_hsta_registry_name_is_removed():

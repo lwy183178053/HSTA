@@ -87,6 +87,7 @@ def test_small_profile_caps_match_protocol():
         "small": {"train": 100, "val": 20, "test": 20},
         "medium": {"train": 1000, "val": 200, "test": 200},
         "paper": {"train": 10000, "val": 1000, "test": 2000},
+        "large": {"train": 10000, "val": 2000, "test": 2000},
     }
 
 
