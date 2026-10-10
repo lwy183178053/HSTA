@@ -1,15 +1,43 @@
-# Experiment Scope
+# 实验范围与评价指标
 
-The revised study uses the existing CESNET-TLS22 S and CESNET-QUIC22 S subsets. Each task has 100 known applications. HSTA-CM-open adds an explicit `unknown` output trained with extra unknown-support flows; the closed-set baselines keep a 100-way head and receive no unknown labels during training. Flow dates determine train, validation, and test membership.
+## 数据与划分
 
-The compact comparison has six primary model families: HSTA-CM, 30pktTCNET-adapted, NetMamba-adapted, SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted. “Compact” refers to the selected experiment matrix and sampled S data, not to a low-parameter variant. HSTA-CM-open uses seeds 599, 5009, and 813 on each dataset; each adapted closed-set comparison family uses seed 599 in the compact rerun. All models receive the same `[30, 3]` packet representation. `HSTA-CM-DFT` is included as one additional seed599 extension run per dataset and is reported separately from the primary comparison rows.
+实验使用 CESNET-TLS22-S 和 CESNET-QUIC22-S。每个数据集选取 100 个已知应用类别，按日期划分训练、验证和测试；同一条流不会跨集合。输入统一为前 30 个数据包的 3 个特征。
 
-The open-set claim is tested with two controls: HSTA-CM-open versus the same HSTA-CM architecture trained without the reject class (HSTA-CM-closed), and the five retained closed-set baselines. HSTA-CM-open is trained with synthetic unknown-support flows in the training split. Held-out real applications and an unseen synthetic-noise generator family remain test-only. Closed-set models use `1 - max(softmax)` as an unknownness score; its threshold is calibrated from known validation flows only at a fixed 95% known-acceptance quantile. The final mixed test set reports known accuracy/Macro-F1 separately from unknown recall, precision/F1, AUROC/AUPR, and known false-reject rate. Unknown results are also broken down by held-out application and synthetic-noise source.
+## 主实验矩阵
 
-The focused ablation compares the full HSTA-CM against three component removals on both datasets: no convolution branch, no Mamba branch, and no FlashAttention block. The replacement projection in the no-convolution branch keeps the tensor width fixed, while the no-Mamba branch keeps the input projection and positional embedding. There are no depth or width sweeps in the compact protocol. GRU, standalone Transformer, 40-class, 60-class, placement, ratio, and evidence-pack experiments are removed from the active project.
+主比较包含：
 
-The efficiency protocol evaluates the retained model checkpoints with batch sizes 1, 8, and 32 only. It reports parameter count, analytical MACs/FLOPs, latency, throughput, and CUDA peak memory; data loading time is excluded.
+- HSTA-CM-open：训练 100 个已知类和显式 `unknown` 类（101 类），使用种子 `599、5009、813`。
+- HSTA-CM-closed：同一结构但不训练 `unknown`，作为拒识训练对照。
+- 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted、BPF-GNN-adapted：100 类闭集训练，不使用未知标签；紧凑重跑暂用 seed `599`。
+- HSTA-CM-DFT：每个数据集一个 seed `599` 的频域扩展结果，单独报告。
 
-The DFT extension transforms the 30 packet positions with a one-sided real FFT, producing 16 non-redundant frequency bins. It keeps real and imaginary components and applies three residual `(1, 3)` `Conv2d` layers along frequency. It is an exploratory frequency-domain result, so it does not expand the baseline or component-ablation matrix.
+“compact”表示数据量或实验矩阵精简，不表示低参数量模型。所有采样规模使用相同的模型超参数。
 
-The final paper tables should report the mean and standard deviation of the three HSTA seeds. The compact adapted baselines currently use one seed and must be reported as single-run values until their three-seed reruns are completed; they must not be given a fabricated standard deviation. Existing `results/compact_s_tls_seed599` values used the earlier protocol in which every model received an explicit unknown class; they are pipeline checks and must not be used as evidence for the open-set contribution.
+## 开放集验证
+
+测试集混合已知流量、训练中未出现的真实应用流量和未见过的噪声生成族。HSTA-CM-open 直接输出 `unknown`；闭集模型使用 `1 - max(softmax)`，阈值仅由已知验证流量的 95% 接受分位点确定，不使用未知测试样本调阈值。
+
+分别报告：
+
+- 已知类别 Accuracy、Macro-F1；
+- `unknown` Recall、Precision、F1；
+- unknown AUROC/AUPR；
+- 已知流量误拒率和未知流量误判为已知的比例；
+- 拒识后的整体开放集指标、参数量和运行时间；
+- 按真实留出应用和噪声来源拆分的未知结果。
+
+不能只报告未知 F1；提高拒识率若同时误拒大量已知流量，不代表模型更好。
+
+## 消融与效率
+
+HSTA-CM 组件消融在两个数据集上各比较三项：去掉卷积分支、去掉 Mamba 分支、去掉 FlashAttention。替代分支保持张量宽度和训练协议一致，消融模型仍使用显式 `unknown` 训练。
+
+效率实验只测 batch size `1、8、32`，报告参数量、MACs/FLOPs、延迟、吞吐量和 CUDA 峰值显存，不计入数据加载时间。
+
+40 类、60 类、独立 GRU、独立 Transformer、层数/宽度扫描和旧证据包不再属于当前实验矩阵。DFT 只作为扩展实验，不扩展主对比和消融矩阵。
+
+## 结果报告
+
+HSTA-CM-open 的三次种子结果报告均值和标准差。对比模型当前只有 seed 599 时，按单次结果报告，不填写虚假的标准差。旧目录 `results/compact_s_tls_seed599` 使用了所有模型都训练 `unknown` 的旧协议，只作流程检查。
