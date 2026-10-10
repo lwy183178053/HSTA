@@ -48,6 +48,9 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             max_len=_int(cfg, "max_len", seq_len), pooling=str(cfg.get("pooling", "mean")),
             use_attention=bool(cfg.get("use_attention", True)),
             use_position=bool(cfg.get("use_position", True)),
+            frequency_representation=str(cfg.get("frequency_representation", "magnitude")),
+            fusion_mode=str(cfg.get("fusion_mode", "pooled")),
+            use_raw_conv=bool(cfg.get("use_raw_conv", False)),
         )
     if model in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
         return PktTCNetAdapted(
