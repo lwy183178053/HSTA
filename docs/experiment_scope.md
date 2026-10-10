@@ -2,7 +2,7 @@
 
 The revised study uses the existing CESNET-TLS22 S and CESNET-QUIC22 S subsets. Each task has 100 known applications and one explicit `unknown` output. Flow dates determine train, validation, and test membership.
 
-The compact comparison has six primary model families: HSTA-CM, 30pktTCNET-adapted, NetMamba-adapted, SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted. HSTA-CM uses three seeds on each dataset; each adapted comparison family uses seed 42 in the compact rerun. All models receive the same `[30, 3]` packet representation and class mapping. `HSTA-CM-DFT` is included as one additional seed42 extension run per dataset and is reported separately from the primary comparison rows.
+The compact comparison has six primary model families: HSTA-CM, 30pktTCNET-adapted, NetMamba-adapted, SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted. HSTA-CM uses seeds 599, 5009, and 813 on each dataset; each adapted comparison family uses seed 599 in the compact rerun. All models receive the same `[30, 3]` packet representation and class mapping. `HSTA-CM-DFT` is included as one additional seed599 extension run per dataset and is reported separately from the primary comparison rows.
 
 The focused ablation compares the full HSTA-CM against three component removals on both datasets: no convolution branch, no Mamba branch, and no FlashAttention block. The replacement projection in the no-convolution branch keeps the tensor width fixed, while the no-Mamba branch keeps the input projection and positional embedding. There are no depth or width sweeps in the compact protocol. GRU, standalone Transformer, 40-class, 60-class, placement, ratio, and evidence-pack experiments are removed from the active project.
 

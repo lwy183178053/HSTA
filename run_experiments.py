@@ -62,6 +62,11 @@ def main():
             "are written under this directory either way."
         ),
     )
+    parser.add_argument(
+        "--data-csv",
+        default=None,
+        help="Override data_csv for every selected experiment, useful for sampled temporal subsets.",
+    )
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as handle:
@@ -80,6 +85,8 @@ def main():
     for merged in configured:
         if selected and merged["exp_name"] not in selected:
             continue
+        if args.data_csv:
+            merged["data_csv"] = args.data_csv
         merged["resume"] = bool(args.resume and not args.force)
         merged["extend_training"] = bool(args.extend)
         print(f"\n===== RUN {merged['exp_name']} =====")

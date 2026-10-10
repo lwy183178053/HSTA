@@ -14,6 +14,7 @@ META_COLS = {"flow_id", "label", "split", "pkt_index"}
 # Packet size, direction, and packet inter-arrival time features.
 DEFAULT_TRAFFIC_FEATURES = ["size", "direction", "delta_time"]
 UNKNOWN_LABEL_ALIASES = {"unknown", "_unknown", "__unknown__"}
+CSV_CHUNKSIZE = 250_000
 
 
 @dataclass
@@ -75,40 +76,82 @@ def load_sequence_csv(
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {csv_path}")
-    df = pd.read_csv(csv_path, low_memory=False)
-    if label_col not in df.columns:
+    # Processed S exports can contain tens of millions of packet rows. Read
+    # only model columns and aggregate one chunk at a time to avoid materializing
+    # the multi-gigabyte CSV in memory.
+    header = pd.read_csv(csv_path, nrows=0)
+    columns = set(header.columns)
+    if label_col not in columns:
         raise ValueError(f"CSV must contain label column: {label_col}")
     if feature_cols is None:
-        feature_cols = _numeric_feature_cols(df, label_col)
+        if all(col in columns for col in DEFAULT_TRAFFIC_FEATURES):
+            feature_cols = DEFAULT_TRAFFIC_FEATURES.copy()
+        else:
+            sample = pd.read_csv(csv_path, nrows=1024, low_memory=False)
+            feature_cols = _numeric_feature_cols(sample, label_col)
     if not feature_cols:
         raise ValueError("No numeric feature columns were found")
     for col in feature_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    valid_mask = df[feature_cols].notna().all(axis=1) & df[label_col].notna()
-    dropped = int((~valid_mask).sum())
-    if dropped:
-        print(f"[data] dropped {dropped} malformed rows from {csv_path}")
-        df = df.loc[valid_mask].copy()
+        if col not in columns:
+            raise ValueError(f"CSV is missing feature column: {col}")
+
+    selected_columns = list(dict.fromkeys(
+        [column for column in ("flow_id", label_col, split_col) if column in columns]
+        + list(feature_cols)
+    ))
 
     flows, labels, splits = [], [], []
-    if "flow_id" in df.columns:
-        for _, group in df.groupby("flow_id", sort=False):
-            x = group[feature_cols].to_numpy(dtype="float32")[:seq_len]
-            if len(x) < seq_len:
-                x = np.pad(x, ((0, seq_len - len(x)), (0, 0)), mode="constant")
-            flows.append(x)
-            label = str(group[label_col].iloc[0])
-            labels.append(unknown_label if label.strip().lower() in UNKNOWN_LABEL_ALIASES else label)
-            if split_col in group.columns:
-                splits.append(str(group[split_col].iloc[0]).lower())
-    else:
-        flows = [row for row in df[feature_cols].to_numpy(dtype="float32")[:, None, :]]
-        labels = [
-            unknown_label if str(value).strip().lower() in UNKNOWN_LABEL_ALIASES else value
-            for value in df[label_col].tolist()
-        ]
-        if split_col in df.columns:
-            splits = [str(v).lower() for v in df[split_col].tolist()]
+    dropped = 0
+
+    def append_group(group: pd.DataFrame) -> None:
+        x = group[feature_cols].to_numpy(dtype="float32")[:seq_len]
+        if len(x) < seq_len:
+            x = np.pad(x, ((0, seq_len - len(x)), (0, 0)), mode="constant")
+        flows.append(x)
+        label = str(group[label_col].iloc[0])
+        labels.append(unknown_label if label.strip().lower() in UNKNOWN_LABEL_ALIASES else label)
+        if split_col in group.columns:
+            splits.append(str(group[split_col].iloc[0]).lower())
+
+    carry = None
+    reader = pd.read_csv(
+        csv_path,
+        usecols=selected_columns,
+        chunksize=CSV_CHUNKSIZE,
+        low_memory=False,
+    )
+    for chunk in reader:
+        for col in feature_cols:
+            chunk[col] = pd.to_numeric(chunk[col], errors="coerce")
+        valid_mask = chunk[feature_cols].notna().all(axis=1) & chunk[label_col].notna()
+        dropped += int((~valid_mask).sum())
+        chunk = chunk.loc[valid_mask].copy()
+        if chunk.empty:
+            continue
+
+        if "flow_id" in chunk.columns:
+            if carry is not None:
+                chunk = pd.concat((carry, chunk), ignore_index=True)
+                carry = None
+            last_flow_id = chunk["flow_id"].iloc[-1]
+            complete = chunk.loc[chunk["flow_id"] != last_flow_id]
+            carry = chunk.loc[chunk["flow_id"] == last_flow_id].copy()
+            for _, group in complete.groupby("flow_id", sort=False):
+                append_group(group)
+        else:
+            values = chunk[feature_cols].to_numpy(dtype="float32")
+            flows.extend(values[:, None, :])
+            labels.extend(
+                unknown_label if str(label).strip().lower() in UNKNOWN_LABEL_ALIASES else str(label)
+                for label in chunk[label_col].tolist()
+            )
+            if split_col in chunk.columns:
+                splits.extend(str(value).lower() for value in chunk[split_col].tolist())
+
+    if carry is not None and not carry.empty:
+        append_group(carry)
+    if dropped:
+        print(f"[data] dropped {dropped} malformed rows from {csv_path}")
 
     # Keep the reject class at the final output index.  This makes checkpoints
     # and reports stable when a new known application is inserted.

@@ -84,10 +84,15 @@ def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
         if str(exp.get("model", "")).lower() == "hsta-cm-dft"
     ]
     assert {exp["exp_name"] for exp in dft_experiments} == {
-        "hsta_cm_dft_tls22_s_seed42",
-        "hsta_cm_dft_quic22_s_seed42",
+        "hsta_cm_dft_tls22_s_seed599",
+        "hsta_cm_dft_quic22_s_seed599",
     }
-    assert all(int(exp["seed"]) == 42 for exp in dft_experiments)
+    assert all(int(exp["seed"]) == 599 for exp in dft_experiments)
+    hsta_experiments = [
+        exp for exp in cfg.get("experiments", [])
+        if str(exp.get("model", "")).lower() == "hsta-cm"
+    ]
+    assert {int(exp["seed"]) for exp in hsta_experiments} == {599, 5009, 813}
     by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
     for exp_name in ("tcnet_tls22_s", "tcnet_quic22_s"):
         assert by_name[exp_name]["model_cfg"]["depth"] == 5

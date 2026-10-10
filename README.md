@@ -42,4 +42,13 @@ bash scripts/run_wsl_experiments.sh main
 bash scripts/run_wsl_experiments.sh ablation
 ```
 
+For the first inexpensive comparison, sample a balanced temporal subset from the processed TLS S CSV, then run all retained models with seed `599`:
+
+```bash
+python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s_seq30.csv --output-csv data/processed/datazoo_tls100_s_seq30_tiny.csv --dataset tls --profile tiny --seed 599
+bash scripts/run_wsl_experiments.sh quick_tls
+```
+
+The subset profiles use per-class caps of train/validation/test `100/20/20` (`tiny`), `500/100/100` (`small`), and `1000/200/200` (`medium`). The split labels retain the DataZoo temporal windows: earlier days for training, the following validation window, and the later week for testing.
+
 The compact matrix reports macro-F1, known accuracy, unknown recall/precision/F1, known-to-unknown false acceptance rate, parameter count, and runtime. `scripts/summarize_compact_results.py` aggregates completed runs.
