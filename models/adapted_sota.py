@@ -56,11 +56,11 @@ class PktTCNetAdapted(nn.Module):
         self,
         input_dim: int,
         num_classes: int,
-        channels: int = 128,
+        channels: int = 256,
         depth: int = 5,
         kernel_size: int = 3,
         dropout: float = 0.15,
-        classifier_hidden: int = 128,
+        classifier_hidden: int = 256,
     ):
         super().__init__()
         if input_dim <= 0:
@@ -126,7 +126,7 @@ class NetMambaAdapted(MambaClassifier):
         self,
         input_dim: int,
         num_classes: int,
-        dim: int = 128,
+        dim: int = 256,
         depth: int = 5,
         dropout: float = 0.15,
         d_state: int = 16,

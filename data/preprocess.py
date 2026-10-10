@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["tls", "quic"], default=None)
     parser.add_argument("--size", default="S", choices=["S", "M", "L"])
-    parser.add_argument("--topk", type=int, default=100, help="number of known classes selected by DataZoo training frequency")
+    parser.add_argument("--topk", type=int, default=60, help="number of known classes selected by DataZoo training frequency")
     parser.add_argument(
         "--unknown-count",
         type=int,

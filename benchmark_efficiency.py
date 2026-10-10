@@ -27,7 +27,6 @@ DEFAULT_CONFIGS = [
 # the Mamba-only comparison in the final experiment set.
 CORE_MODELS = {
     "hsta-cm",
-    "hsta-cm-dft",
     "30pkttcnet-adapted",
     "netmamba-adapted",
     "srvit",
@@ -35,7 +34,7 @@ CORE_MODELS = {
     "bpf_gnn",
     "bpf-gnn",
 }
-TASK_NAMES = ("tls22_s", "quic22_s")
+TASK_NAMES = ("tls60_s", "quic60_s")
 
 REPEATED_METRICS = [
     "latency_ms_mean",
@@ -433,7 +432,7 @@ def _is_core_main_row(row: dict[str, Any]) -> bool:
         row.get("model") in CORE_MODELS
         and row.get("block_repeats") == 1
         and row.get("variant") == "main"
-        and exp_name.endswith("_seed42")
+        and exp_name.endswith("_seed599")
     )
 
 
@@ -736,7 +735,7 @@ def run(args) -> None:
         "- `benchmark_results.csv`：按实验和 batch size 汇总的延迟与 FLOPs。",
         "- `benchmark_repeats.csv`：每次重复测试的原始记录。",
         "- `summary.csv`：便于排序的完整模型效率表。",
-        "- `core_model_efficiency.csv`：TLS22-S 和 QUIC22-S 主任务的 seed42 核心/适配模型效率表。",
+        "- `core_model_efficiency.csv`：TLS60-S 和 QUIC60-S 主任务的 seed599 核心/适配模型效率表。",
         "- `benchmark_results.json`：完整元数据和 FLOPs 分解。",
         "",
         "FLOPs 约定：一次乘加计为 2 个 FLOPs，MACs 按 FLOPs / 2 计算。",
@@ -776,7 +775,7 @@ def parse_args():
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=599)
     parser.add_argument("--no-mamba-scan-estimate", action="store_true")
     parser.add_argument("--merge-existing", action="store_true", help="Replace matching exp_name rows while preserving other benchmark rows in the output directory.")
     return parser.parse_args()

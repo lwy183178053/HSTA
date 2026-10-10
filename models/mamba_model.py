@@ -7,7 +7,7 @@ class MambaBlock(nn.Module):
 
     def __init__(
         self,
-        dim: int = 128,
+        dim: int = 256,
         d_state: int = 16,
         d_conv: int = 4,
         expand: int = 2,
@@ -29,7 +29,7 @@ class MambaClassifier(nn.Module):
         self,
         input_dim: int,
         num_classes: int,
-        dim: int = 128,
+        dim: int = 256,
         depth: int = 5,
         dropout: float = 0.1,
         d_state: int = 16,

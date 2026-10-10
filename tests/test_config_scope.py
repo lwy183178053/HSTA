@@ -1,16 +1,11 @@
-"""Tests for the reduced S experiment surface.
-
-The old suite encoded the removed four-task 40/60 matrix. These checks keep
-the repository from quietly reintroducing those legacy experiments while
-leaving the exact 100-class/open-set configuration to active configs.
-"""
+"""Regression checks for the canonical 60-class small experiment scope."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
 import pytest
+import yaml
 
 from models import build_model
 
@@ -19,146 +14,77 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "configs"
 
 
-def _configs() -> list[tuple[Path, dict]]:
-    values = []
-    for path in sorted(CONFIG_DIR.glob("*.yaml")):
-        with path.open(encoding="utf-8") as handle:
-            values.append((path, yaml.safe_load(handle) or {}))
-    return values
+def _load(name: str) -> dict:
+    path = CONFIG_DIR / name
+    with path.open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
 
 
-def test_only_s_configs_remain():
-    paths = [path for path, _ in _configs()]
-    assert paths, "at least one experiment configuration is required"
-    assert all(
-        path.name in {"compact_s.yaml", "hsta_cm_ablation_s.yaml", "compact_s_60_dim256.yaml"}
-        for path in paths
-    )
+def test_only_current_configs_remain():
+    names = {path.name for path in CONFIG_DIR.glob("*.yaml")}
+    assert names == {"compact_s.yaml", "hsta_cm_ablation_s.yaml"}
 
 
-def test_configs_do_not_reference_removed_tasks_or_models():
-    removed_tokens = (
-        "tls40",
-        "quic40",
-        "tls60",
-        "quic60",
-        "gru",
-        "transformer",
-    )
-    for path, _ in _configs():
-        # The dedicated 60-class screening config intentionally uses the
-        # numeric suffix that the historical task-removal check rejects.
-        if path.name == "compact_s_60_dim256.yaml":
-            continue
-        text = path.read_text(encoding="utf-8").lower()
-        for token in removed_tokens:
-            assert token not in text, f"{path.name} still references removed {token}"
+def test_compact_matrix_is_60_class_small_seed599():
+    cfg = _load("compact_s.yaml")
+    base = cfg["base"]
+    experiments = cfg["experiments"]
+    assert len(experiments) == 14
+    assert base["seed"] == 599
+    assert base["epochs"] == 100
+    assert base["patience"] == 15
+    assert base["seq_len"] == 30
+    assert base["early_stop_metric"] == "val_known_macro_f1"
+    assert base["lr_scheduler_metric"] == "val_known_macro_f1"
+    assert base["model_cfg"]["dim"] == 256
+    assert base["model_cfg"]["attention_backend"] == "flash"
 
-
-def test_compact_matrix_contains_dft_primary_model_and_no_dft_ablation():
-    path = CONFIG_DIR / "compact_s.yaml"
-    if not path.exists():
-        return
-    cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
-    names = {str(exp.get("model", "")).lower() for exp in cfg.get("experiments", [])}
-    assert names <= {
-        "hsta-cm",
-        "hsta-cm-dft",
-        "30pkttcnet-adapted",
-        "netmamba-adapted",
-        "30pkttcnet_adapted",
-        "netmamba_adapted",
-        "srvit",
-        "trafficaudio",
-        "bpf-gnn",
-        "bpf_gnn",
+    names = {str(exp["exp_name"]) for exp in experiments}
+    assert len({name for name in names if "tls60" in name}) == 7
+    assert len({name for name in names if "quic60" in name}) == 7
+    assert all(int(exp["seed"]) == 599 for exp in experiments)
+    assert all("datazoo_tls60_s_protocol_small_sampled.csv" in exp["data_csv"] or
+               "datazoo_quic60_s_protocol_small_sampled.csv" in exp["data_csv"]
+               for exp in experiments)
+    models = {str(exp["model"]).lower() for exp in experiments}
+    assert models == {
+        "hsta-cm", "30pkttcnet-adapted", "netmamba-adapted", "srvit",
+        "trafficaudio", "bpf-gnn",
     }
-    assert names == {
-        "hsta-cm",
-        "hsta-cm-dft",
-        "30pkttcnet-adapted",
-        "netmamba-adapted",
-        "srvit",
-        "trafficaudio",
-        "bpf-gnn",
-    }
-    assert {"hsta-cm", "srvit", "trafficaudio", "bpf-gnn"} <= names
-    dft_experiments = [
-        exp for exp in cfg.get("experiments", [])
-        if str(exp.get("model", "")).lower() == "hsta-cm-dft"
-    ]
-    assert {exp["exp_name"] for exp in dft_experiments} == {
-        "hsta_cm_dft_tls22_s_seed599",
-        "hsta_cm_dft_tls22_s_seed5009",
-        "hsta_cm_dft_tls22_s_seed813",
-        "hsta_cm_dft_closed_tls22_s_seed599",
-        "hsta_cm_dft_quic22_s_seed599",
-        "hsta_cm_dft_quic22_s_seed5009",
-        "hsta_cm_dft_quic22_s_seed813",
-        "hsta_cm_dft_closed_quic22_s_seed599",
-    }
-    assert {int(exp["seed"]) for exp in dft_experiments} == {599, 5009, 813}
-    hsta_experiments = [
-        exp for exp in cfg.get("experiments", [])
-        if str(exp.get("model", "")).lower() == "hsta-cm"
-    ]
-    assert {int(exp["seed"]) for exp in hsta_experiments} == {599}
-    by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
-    for exp_name in ("tcnet_tls22_s", "tcnet_quic22_s"):
-        assert by_name[exp_name]["model_cfg"]["depth"] == 5
-    for exp_name in ("netmamba_tls22_s", "netmamba_quic22_s"):
-        assert by_name[exp_name]["model_cfg"]["depth"] == 5
-        assert by_name[exp_name]["model_cfg"]["max_len"] == 256
-    for exp_name in ("srvit_tls22_s", "srvit_quic22_s"):
-        assert by_name[exp_name]["model_cfg"]["depth"] == 4
-    for exp_name in ("trafficaudio_tls22_s", "trafficaudio_quic22_s"):
-        audio_cfg = by_name[exp_name]["model_cfg"]
-        assert audio_cfg["n_fft"] == 32
-        assert audio_cfg["n_mels"] <= audio_cfg["n_fft"] // 2 + 1
-    model_cfg = cfg.get("base", {}).get("model_cfg", {})
-    assert model_cfg.get("attention_backend") == "flash"
-    by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
-    assert all(by_name[name].get("train_unknown", True) for name in (
-        "hsta_cm_dft_tls22_s_seed599", "hsta_cm_dft_tls22_s_seed5009",
-        "hsta_cm_dft_tls22_s_seed813", "hsta_cm_no_dft_tls22_s_seed599",
-        "hsta_cm_dft_quic22_s_seed599", "hsta_cm_dft_quic22_s_seed5009",
-        "hsta_cm_dft_quic22_s_seed813", "hsta_cm_no_dft_quic22_s_seed599",
-    ))
-    assert all(not by_name[name].get("train_unknown", True) for name in (
-        "hsta_cm_dft_closed_tls22_s_seed599",
-        "hsta_cm_dft_closed_quic22_s_seed599",
-    ))
-    assert all(not by_name[name].get("train_unknown", True) for name in (
-        "tcnet_tls22_s", "netmamba_tls22_s", "srvit_tls22_s",
-        "trafficaudio_tls22_s", "bpfgnn_tls22_s", "tcnet_quic22_s",
-        "netmamba_quic22_s", "srvit_quic22_s", "trafficaudio_quic22_s",
-        "bpfgnn_quic22_s",
-    ))
+    open_runs = [exp for exp in experiments if "_open_" in exp["exp_name"]]
+    closed_runs = [exp for exp in experiments if "_closed_" in exp["exp_name"]]
+    assert len(open_runs) == 2
+    assert all(exp.get("train_unknown") is True for exp in open_runs)
+    assert len(closed_runs) == 2
+    assert all(exp.get("train_unknown") is False for exp in closed_runs)
+    assert all(exp.get("train_unknown") is False for exp in experiments
+               if exp not in open_runs)
 
 
-def test_hsta_cm_ablation_matrix_is_four_by_two():
-    cfg = yaml.safe_load((CONFIG_DIR / "hsta_cm_ablation_s.yaml").read_text(encoding="utf-8"))
-    names = {str(exp["exp_name"]) for exp in cfg["experiments"]}
-    assert len(names) == 8
-    assert {"full", "no_conv", "no_mamba", "no_attention"} <= {
-        name.split("hsta_cm_", 1)[1].rsplit("_", 2)[0] for name in names
-    }
-
-
-def test_runner_does_not_expose_removed_modes():
-    runner = (ROOT / "scripts" / "run_wsl_experiments.sh").read_text(encoding="utf-8").lower()
-    for token in (
-        "tls40",
-        "quic40",
-        "tls60",
-        "quic60",
-        "recent_all",
-        "sota_all",
-        "evidence",
-    ):
-        assert token not in runner
+def test_ablation_matrix_is_three_by_two_open_set():
+    cfg = _load("hsta_cm_ablation_s.yaml")
+    base = cfg["base"]
+    experiments = cfg["experiments"]
+    assert len(experiments) == 6
+    assert base["model"] == "hsta-cm"
+    assert base["seed"] == 599
+    assert base["epochs"] == 100
+    assert base["patience"] == 15
+    assert base["early_stop_metric"] == "val_known_macro_f1"
+    assert base["lr_scheduler_metric"] == "val_known_macro_f1"
+    assert base["model_cfg"]["dim"] == 256
+    assert base["model_cfg"]["use_conv"] is True
+    assert base["model_cfg"]["use_mamba"] is True
+    assert base["model_cfg"]["use_attention"] is True
+    assert all(exp.get("seed") == 599 for exp in experiments)
+    assert all(exp.get("train_unknown") is True for exp in experiments)
+    assert {name.split("_open_", 1)[0] for name in
+            (exp["exp_name"] for exp in experiments)} == {
+                "hsta_cm_no_conv", "hsta_cm_no_mamba", "hsta_cm_no_attention",
+            }
+    assert all("60_s_protocol_small_sampled.csv" in exp["data_csv"] for exp in experiments)
 
 
 def test_legacy_hsta_registry_name_is_removed():
     with pytest.raises(ValueError):
-        build_model("hsta", input_dim=3, num_classes=101, seq_len=30, cfg={})
+        build_model("hsta", input_dim=3, num_classes=61, seq_len=30, cfg={})

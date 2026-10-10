@@ -1,11 +1,7 @@
-"""Write the small, paper-facing result table.
+"""汇总当前 60 类 small 实验的核心指标。
 
-Each run keeps its complete ``metrics.json`` while ``summary.csv`` and this
-derived table expose only scalar comparison fields.  This script deliberately
-creates a compact view for the manuscript so the raw and threshold metric
-namespaces do not appear as duplicate columns in the first result table.  The
-threshold-rejection view is the primary open-set operating point; raw argmax
-metrics remain available in ``metrics.json``.
+``all_results.csv`` 保留完整运行的精简字段；每个运行目录中的
+``metrics.json`` 仍是 raw argmax 和 threshold rejection 的审计来源。
 """
 
 from __future__ import annotations
@@ -15,83 +11,106 @@ from pathlib import Path
 import pandas as pd
 
 
-# These are the metrics a reader needs to compare the models.  The underlying
-# result files contain the full protocol (both raw and threshold views).
-PRIMARY_METRICS = {
+METRICS = {
     "known_accuracy": "test_threshold_known_accuracy",
     "known_macro_f1": "test_threshold_known_macro_f1",
+    "unknown_precision": "test_threshold_unknown_precision",
+    "unknown_recall": "test_threshold_unknown_recall",
     "unknown_f1": "test_threshold_unknown_f1",
     "unknown_auroc": "test_threshold_unknown_auroc",
     "unknown_aupr": "test_threshold_unknown_aupr",
+    "known_false_unknown": "test_threshold_known_false_unknown_rate",
+    "unknown_false_known": "test_threshold_unknown_false_known_rate",
+    "open_set_accuracy": "test_threshold_open_set_accuracy",
     "open_set_macro_f1": "test_threshold_open_set_macro_f1",
 }
+
+LEGACY_FIELDS = {
+    "known_accuracy": "test_known_accuracy",
+    "known_macro_f1": "test_known_macro_f1",
+    "unknown_precision": "test_unknown_precision",
+    "unknown_recall": "test_unknown_recall",
+    "unknown_f1": "test_unknown_f1",
+    "unknown_auroc": "test_unknown_auroc",
+    "unknown_aupr": "test_unknown_aupr",
+    "known_false_unknown": "test_known_false_unknown_rate",
+    "unknown_false_known": "test_unknown_false_known_rate",
+    "open_set_accuracy": "test_open_set_accuracy",
+    "open_set_macro_f1": "test_open_set_macro_f1",
+}
+
+
+def _metric_columns(frame: pd.DataFrame) -> dict[str, str]:
+    selected: dict[str, str] = {}
+    for label, current in METRICS.items():
+        if current in frame.columns:
+            selected[label] = current
+        elif LEGACY_FIELDS[label] in frame.columns:
+            selected[label] = LEGACY_FIELDS[label]
+    return selected
 
 
 def main() -> None:
     path = Path("results/compact_s/all_results.csv")
     if not path.exists():
-        raise FileNotFoundError(f"Missing {path}; run scripts/run_wsl_experiments.sh compact_s first")
-    df = pd.read_csv(path)
-    model_names = {
-        "hsta-cm": "HSTA-CM-no-DFT",
-        "hsta_cm": "HSTA-CM-no-DFT",
-        "hsta-cm-dft": "HSTA-CM-DFT",
-        "hsta_cm_dft": "HSTA-CM-DFT",
-        "30pkttcnet-adapted": "30pktTCNET-adapted",
-        "netmamba-adapted": "NetMamba-adapted",
-        "srvit": "SRViT-adapted",
-        "trafficaudio": "TrafficAudio-adapted",
-        "bpf-gnn": "BPF-GNN-adapted",
-        "bpf_gnn": "BPF-GNN-adapted",
+        raise FileNotFoundError(f"缺少 {path}，请先运行 scripts/run_wsl_experiments.sh main")
+    frame = pd.read_csv(path)
+
+    names = {
+        "hsta-cm": "HSTA-CM",
+        "hsta_cm": "HSTA-CM",
+        "30pkttcnet-adapted": "30pktTCNET",
+        "30pkttcnet": "30pktTCNET",
+        "netmamba-adapted": "NetMamba",
+        "netmamba": "NetMamba",
+        "srvit": "SRViT",
+        "srvit-adapted": "SRViT",
+        "trafficaudio": "TrafficAudio",
+        "trafficaudio-adapted": "TrafficAudio",
+        "bpf-gnn": "BPF-GNN",
+        "bpf_gnn": "BPF-GNN",
     }
-    df["variant"] = df["model"].map(model_names).fillna(df["model"])
-    # Both the current names (tls22_s/quic22_s) and older probe names are
-    # accepted, so the reporting script remains useful for archived runs.
-    df["task"] = df["exp_name"].str.extract(r"((?:tls|quic)22_(?:s|small|medium|paper))", expand=False)
-    df["task"] = df["task"].fillna(df["exp_name"].str.extract(r"((?:tls|quic))", expand=False))
+    model = frame.get("model", pd.Series("unknown", index=frame.index)).astype(str).str.lower()
+    frame["model_name"] = model.map(names).fillna(frame.get("model", model))
+    exp = frame.get("exp_name", pd.Series("", index=frame.index)).astype(str)
+    frame["variant"] = "closed"
+    frame.loc[exp.str.contains("open", case=False), "variant"] = "open"
+    frame.loc[exp.str.contains("no_conv|no_mamba|no_attention", case=False, regex=True), "variant"] = "ablation"
+    frame["dataset"] = exp.str.extract(r"((?:tls|quic)60_s)", expand=False).fillna("")
+    frame["seed"] = pd.to_numeric(frame.get("seed"), errors="coerce")
 
-    # A few early probe files predate the explicit threshold namespace.  Use
-    # their legacy fields as a compatibility fallback without changing them.
-    selected = {}
-    for short_name, column in PRIMARY_METRICS.items():
-        if column in df.columns:
-            selected[short_name] = column
-        else:
-            legacy = {
-                "known_accuracy": "test_known_accuracy",
-                "known_macro_f1": "test_known_macro_f1",
-                "unknown_f1": "test_unknown_f1",
-                "unknown_auroc": "test_unknown_auroc",
-                "unknown_aupr": "test_unknown_aupr",
-                "open_set_macro_f1": "test_open_set_macro_f1",
-            }[short_name]
-            if legacy in df.columns:
-                selected[short_name] = legacy
+    selected = _metric_columns(frame)
+    columns = ["model_name", "variant", "dataset", "seed"] + list(selected.values())
+    compact = frame[[column for column in columns if column in frame.columns]].copy()
+    compact = compact.rename(columns={source: label for label, source in selected.items()})
+    for label in selected:
+        compact[label] = pd.to_numeric(compact[label], errors="coerce")
 
-    keep = ["variant", "task", "seed"] + list(selected.values())
-    compact = df.loc[df["variant"] != "unknown", keep].copy()
-    compact = compact.rename(columns={column: short_name for short_name, column in selected.items()})
-    for column in selected:
-        compact[column] = pd.to_numeric(compact[column], errors="coerce")
+    rows: list[dict[str, object]] = []
+    for (model_name, variant, dataset), group in compact.groupby(
+        ["model_name", "variant", "dataset"], dropna=False
+    ):
+        row: dict[str, object] = {
+            "model": model_name,
+            "variant": variant,
+            "dataset": dataset,
+            "seeds": int(group["seed"].nunique()) if "seed" in group else 0,
+        }
+        for label in selected:
+            values = group[label].dropna()
+            row[f"{label}_mean"] = float(values.mean()) if not values.empty else float("nan")
+            row[f"{label}_std"] = float(values.std(ddof=1)) if len(values) > 1 else float("nan")
+        rows.append(row)
 
-    grouped = []
-    for (variant, task), group in compact.groupby(["variant", "task"], dropna=False):
-        row = {"model": variant, "dataset": task, "seeds": int(group["seed"].nunique())}
-        for metric in selected:
-            values = group[metric].dropna()
-            row[f"{metric}_mean"] = float(values.mean()) if not values.empty else float("nan")
-            # A single-seed result has no empirical standard deviation.  Keep
-            # it as NaN so it cannot be mistaken for a measured zero.
-            row[f"{metric}_std"] = float(values.std(ddof=1)) if len(values) > 1 else float("nan")
-        grouped.append(row)
-    summary = pd.DataFrame(grouped)
-    sort_columns = ["dataset"]
-    ascending = [True]
-    if "open_set_macro_f1_mean" in summary.columns:
-        sort_columns.append("open_set_macro_f1_mean")
-        ascending.append(False)
-    summary = summary.sort_values(sort_columns, ascending=ascending)
-    summary.to_csv(path.with_name("compact_summary.csv"), index=False)
+    summary = pd.DataFrame(rows)
+    if not summary.empty:
+        order = ["dataset", "variant", "open_set_macro_f1_mean"]
+        sort_columns = [column for column in order if column in summary]
+        ascending = [column != "open_set_macro_f1_mean" for column in sort_columns]
+        summary = summary.sort_values(sort_columns, ascending=ascending)
+    output = path.with_name("compact_summary.csv")
+    summary.to_csv(output, index=False)
+    print(f"已写入 {output}")
     print(summary.to_string(index=False))
 
 

@@ -29,7 +29,7 @@ def unknown_score_from_logits(logits, unknown_index: int | None = None) -> np.nd
     """Return the score used by the fixed reject-threshold protocol.
 
     A model with an explicit unknown output uses that probability. A closed
-    100-way model uses ``1 - max(p_known)`` instead.
+    model without an unknown output uses ``1 - max(p_known)`` instead.
     """
     logits = np.asarray(logits, dtype=np.float64)
     shifted = logits - np.max(logits, axis=1, keepdims=True)

@@ -13,9 +13,9 @@ class HSTACM(nn.Module):
     """Open-set classifier for fixed 30-packet, three-feature flows.
 
     ``use_conv``, ``use_mamba`` and ``use_attention`` disable one component
-    at a time for controlled ablations. This class is the no-DFT reference:
-    its residual Conv1d branch has the same depth and width as the DFT model's
-    frequency branch, but operates directly on the packet sequence.
+    at a time for controlled ablations. Its residual Conv1d branch models
+    local packet interactions while the Mamba branch models packet order.
+    The branches are fused before attention.
     """
 
     layout = ("conv1d_x3_residual", "mamba_x2_residual", "fusion_fc", "flash_attention", "norm_head")
@@ -24,7 +24,7 @@ class HSTACM(nn.Module):
         self,
         input_dim: int,
         num_classes: int,
-        dim: int = 128,
+        dim: int = 256,
         depth: int = 2,
         heads: int = 4,
         mlp_ratio: int = 4,

@@ -1,75 +1,68 @@
-# HSTA-CM：加密流量开放集识别
+# HSTA-CM：CESNET 加密流量开放集识别
 
-本仓库用于在 CESNET-TLS22 和 CESNET-QUIC22 的 S 子集上训练、评估基于 DFT 的 HSTA-CM 及保留的对比模型。官方 PPI 固定描述每条流的前 30 个数据包，每个数据包使用 3 个可观测特征：包大小、方向和到达间隔，输入形状为 `[30, 3]`。`30` 是数据集协议常量，不再作为导出文件名后缀。
+本项目实现 HSTA-CM 的 60 类 small 实验。主模型仅使用时域双分支，统一接收 CESNET-TLS22-S 或 CESNET-QUIC22-S 的前 30 个数据包，每个包包含包长、方向和包间隔三个特征，输入形状为 `[30, 3]`。每个数据集固定 60 个已知类别；开放模型另有 `unknown` 类，因此输出 61 类。
 
-## 研究设定
+## 当前实验
 
-- **HSTA-CM-DFT-open**：DFT 频谱卷积分支与 Mamba 时序分支融合，输出 100 个已知类别加显式 `unknown` 类（共 101 类）。训练时加入未知支持流量，用于学习拒识边界。
-- **HSTA-CM-DFT-closed**：保持 DFT 主架构但不训练 `unknown` 标签，开放集测试时用验证集校准的置信度阈值拒识。
-- **HSTA-CM-no-DFT**：去掉 DFT、保留时域卷积分支的组件消融，使用与主模型相同的开放集训练协议。
-- 训练、验证、测试按日期划分，未知测试流量包括留出的真实应用和独立生成的噪声流量。
-- “compact”只表示实验矩阵或采样规模较小，不表示模型参数量较少。所有采样配置使用相同模型结构。
+- **HSTA-CM-open**：三层残差 `Conv1d`、两层残差 Mamba、融合全连接、位置编码、PyTorch FlashAttention、LayerNorm 和分类头；训练 unknown 支持流量，输出 61 类。
+- **HSTA-CM-closed**：同一结构但只训练 60 个已知类，输出 60 类；测试时用已知验证流量校准拒识阈值。
+- **组件消融**：`no_conv-open`、`no_mamba-open`、`no_attention-open`，保持 256 维、数据划分、unknown 训练规则和随机种子不变。
+- **五个适配基线**：30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN。它们均使用闭集 60 类训练，不使用 unknown 监督；TrafficAudio 内部的 BiGRU 属于该模型，不单列 GRU 或 Transformer 对照。
 
-HSTA-CM-DFT 主结构和 no-DFT 消融见 [docs/architecture.md](docs/architecture.md)。完整开放集数据构造、unknown 隔离、指标和执行顺序以 [docs/experiment_protocol.md](docs/experiment_protocol.md) 为准。实验范围概览见 [docs/experiment_scope.md](docs/experiment_scope.md)，环境与复现步骤见 [docs/reproducibility.md](docs/reproducibility.md)。
+每个数据集运行上述 7 个主模型和 3 个消融模型，共 10 个运行；TLS 与 QUIC 共 20 个运行。当前仅使用 `small=100/20/20` 和随机种子 `599`，所有训练从第 1 轮开始，最多 100 轮，验证集已知类别 Macro-F1 连续 15 轮不提升时早停。
 
-保留的对比实现为 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted 和 BPF-GNN-adapted。它们统一使用 `[30, 3]` 输入，只保留各参考方法的主要建模思想，不宣称复现原论文的原始字节、图像、音频或旁信息管线。GRU 和独立 Transformer 不再作为单独对比模型；TrafficAudio 内部的 BiGRU 仍属于该方法本身。
+## 数据
+
+项目保留已经审计的 60 类协议数据和 small 采样缓存：
+
+```text
+data/processed/datazoo_tls60_s_protocol_small_sampled.csv
+data/processed/datazoo_quic60_s_protocol_small_sampled.csv
+```
+
+每套数据同时有 `report.json`、`audit.json` 和 `sampling_manifest.json`。真实 unknown 在折叠前按应用隔离，测试还包含训练未见的真实应用和训练未见的噪声族。`source_group`、原始应用和噪声族只用于审计与分层统计，不作为模型输入。原始 CESNET H5 数据不重新下载，也不提交 Git。
+
+## 运行
+
+Windows 环境检查：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
+```
+
+训练、Mamba 和 FlashAttention 必须在指定 WSL 环境执行：
+
+```powershell
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && bash scripts/run_wsl_experiments.sh main"
+```
+
+三个入口分别是：
+
+```bash
+bash scripts/run_wsl_experiments.sh main       # TLS60/QUIC60 主比较
+bash scripts/run_wsl_experiments.sh ablation   # 三个 HSTA-CM 组件消融
+bash scripts/run_wsl_experiments.sh efficiency # batch 1、8、32 效率测试
+```
+
+实验配置位于 `configs/compact_s.yaml` 和 `configs/hsta_cm_ablation_s.yaml`。不使用旧 checkpoint；输出写入 `results/compact_s` 和 `results/hsta_cm_ablation_s`，这些目录被 Git 忽略。
+
+## 评价
+
+每个运行同时保存 raw argmax 和 threshold rejection 两套结果。报告已知类别 Accuracy/Macro-F1、unknown Precision/Recall/F1、AUROC、AUPR、已知流量误拒率、未知流量误判为已知比例、混合测试集 Accuracy/Macro-F1、参数量、训练轮数和运行时间，并按 `unknown_test_heldout` 与 `noise_test` 分层。拒识阈值只由已知验证流量校准。
+
+TLS small 验证集中部分已知类别样本较少，Macro-F1 需结合每类样本数解释；单种子结果不表示均值和标准差。
 
 ## 目录
 
 | 路径 | 用途 |
 | --- | --- |
-| `data/` | DataZoo 数据读取、预处理和开放集采样 |
-| `models/` | HSTA-CM、HSTA-CM-DFT 及五个对比实现 |
-| `configs/` | 主实验和 HSTA 组件消融配置 |
-| `train.py` | 单个实验的训练、验证和测试 |
-| `evaluate.py` | 加载检查点并评估 |
-| `run_experiments.py` | 按 YAML 批量运行实验 |
-| `scripts/` | WSL 运行入口、时间均衡采样和结果汇总 |
-| `docs/` | 模型、实验协议、实验范围和复现说明 |
+| `data/` | DataZoo 读取、协议缓存、采样和审计 |
+| `models/` | HSTA-CM 与五个适配基线 |
+| `configs/` | 当前主实验和消融配置 |
+| `train.py` | 单次训练、早停、校准和测试 |
+| `evaluate.py` | 载入检查点并重新评估 |
+| `run_experiments.py` | 按 YAML 批量运行 |
+| `scripts/` | WSL 入口、数据审计和结果汇总 |
+| `docs/` | 架构、协议、范围和复现说明 |
 
-`data/processed/`、`results/`、`logs/` 和检查点属于本地生成物并被 Git 忽略。原始 H5 流量、凭据和本地环境不会提交到 Git。
-
-## 环境
-
-Windows 检查和安装使用项目 Anaconda 解释器：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m pip install -r requirements.txt
-powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
-```
-
-Mamba、CUDA 和 FlashAttention 实验必须在指定 WSL 环境运行：
-
-```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
-```
-
-## 数据与实验
-
-使用已有的 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件生成 100 个已知类别。DataZoo 本身提供按时间/索引划分的 DataLoader；当前 CSV 是为可复现的应用隔离、均衡采样和来源审计生成的缓存，不是完整 S 数据集副本：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048 --out-csv data/processed/datazoo_tls100_s_protocol.csv
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --datazoo-batch-size 2048 --datazoo-test-batch-size 2048 --out-csv data/processed/datazoo_quic100_s_protocol.csv
-```
-
-正式矩阵和消融实验：
-
-```bash
-bash scripts/run_wsl_experiments.sh main
-bash scripts/run_wsl_experiments.sh ablation
-bash scripts/run_wsl_experiments.sh efficiency
-```
-
-先按时间窗口均衡采样，再运行 TLS 或 QUIC 的 seed 599：
-
-```bash
-python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls100_s_protocol.csv --output-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv --dataset tls --profile small --seed 599
-python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_quic100_s_protocol.csv --output-csv data/processed/datazoo_quic100_s_protocol_small_sampled.csv --dataset quic --profile small --seed 599
-bash scripts/run_wsl_experiments.sh small_tls
-bash scripts/run_wsl_experiments.sh small_quic
-```
-
-采样配置为每类训练/验证/测试最多 `100/20/20`（`small`）、`1000/200/200`（`medium`）和 `10000/1000/2000`（`paper`）。采样单位是完整流，不跨时间窗口移动流量；样本规模改变不会改变模型结构或参数量。
-
-主实验报告已知类别 Accuracy/Macro-F1、未知 Recall/Precision/F1、AUROC/AUPR、已知流量误拒率、参数量和运行时间。旧的 `results/compact_s_tls_seed599` 使用了所有模型都带 `unknown` 的旧协议，只能作为流程检查，不能用于证明开放集改进。
+详细约定见 [docs/architecture.md](docs/architecture.md)、[docs/experiment_protocol.md](docs/experiment_protocol.md)、[docs/experiment_scope.md](docs/experiment_scope.md) 和 [docs/reproducibility.md](docs/reproducibility.md)。

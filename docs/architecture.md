@@ -1,40 +1,34 @@
-# HSTA-CM 模型结构
+# HSTA-CM 架构
 
-## 主模型：HSTA-CM-DFT
+## 输入和主干
 
-输入是每条流前 30 个数据包的 `[B, 30, 3]` 张量，3 个特征为包大小、方向和到达间隔。30 是 CESNET-TLS22/QUIC22 的 PPI 协议长度，不代表可以任意扩展或截断的数据集变体。
+每条流只取前 30 个包，三个通道依次为包长、方向和包间隔。模型输入为 `[B, 30, 3]`，所有主模型宽度固定为 `256`。PPI 已经限定 30 个包，数据文件名使用数据集和采样档即可。
 
-1. **频域卷积分支**：沿 30 个数据包位置执行 `torch.fft.rfft`，紧凑主配置保留每个原始特征通道的 `log1p` 频谱幅值，再用三层 PyTorch `Conv1d`（核大小为 3）提取相邻频率点模式。每层卷积都使用残差连接，并保留输入投影残差。实虚部表示仍保留为筛选变体。
-2. **时序分支**：两层当前 `mamba_ssm` Mamba 直接建模原始数据包顺序依赖，并加入时序嵌入残差。
-3. **融合**：紧凑主配置使用 `fusion_mode: tokens`，保留全部 16 个非冗余频点作为频域 Token，并加入三层原始时域 `Conv1d` 分支；30 个 Mamba Token、30 个原始卷积 Token 和 16 个频域 Token 拼接后交给 FlashAttention，再做全 Token 平均汇聚。`pooled` 和无原始卷积分支是直接筛选对照。Token 模式可用 `frequency_token_scale` 学习频域分支权重；TLS small 使用 1.0，QUIC small 使用 0.1。所有融合序列都加入可学习的位置编码和分支类型编码。
-4. **注意力**：使用一个 PyTorch `scaled_dot_product_attention` 的 Flash 后端。配置要求 FlashAttention；CPU、数学实现和 memory-efficient 回退会被拒绝。注意力消融直接跳过该模块。
-5. **输出**：LayerNorm、平均池化后接分类头。HSTA-CM-DFT-open 输出 100 个已知类别加 `unknown`（101 类）；HSTA-CM-DFT-closed 输出 100 个已知类别。
+HSTA-CM 的两条分支并行处理同一输入：
 
-结果文件中的 `hybrid_layers` 是 `layout` 结构阶段计数，不是卷积层、Mamba 层或注意力层的总数。DFT 主模型多记录一个 FFT 阶段，因此该字段比 no-DFT 消融大 1；两者的可训练参数量不由序列长度（30 或 16）决定。
+1. **空间卷积分支**：将张量转为通道优先形式后通过三层 PyTorch `Conv1d`，每层使用大小为 3 的卷积核、归一化和激活，并用投影残差连接输入与输出。该分支建模相邻包之间的局部模式。
+2. **时序 Mamba 分支**：使用当前 `mamba_ssm` 提供的两层 Mamba，层间保留残差连接。该分支建模包序列的长程依赖。
 
-## 开放集协议
+两条分支投影到相同的 256 维后拼接，经融合全连接层得到注意力 token。随后将可学习的位置编码加到融合后的序列上，使注意力能够识别不同包位置。
 
-HSTA-CM-DFT-open 在训练中使用声明的未知支持流量，并把测试时未见过的真实应用和独立噪声生成族映射为 `unknown`。留出的测试未知来源不能参与训练或阈值选择。
+## 注意力和输出
 
-HSTA-CM-DFT-closed 和五个对比模型没有 `unknown` 输出，也不使用未知训练标签。它们先按 100 个已知类预测，再用验证集已知流量校准 `1 - max(softmax)` 阈值进行拒识。所有模型的已知分类结果和未知拒识结果分开报告。
+融合 token 进入 PyTorch `scaled_dot_product_attention` 的 FlashAttention 后端，随后执行 LayerNorm、池化和分类头。运行配置要求 CUDA FlashAttention；不在正式实验中静默回退到 CPU 或数学实现。`no_attention-open` 直接跳过注意力并保持其余层与维度一致。
 
-## 对比模型
+开放模型的分类头为 `61` 类（60 个已知类加 `unknown`）；闭集模型为 `60` 类。开放模型在训练中使用独立的 unknown 支持流量，闭集模型和五个基线不使用 unknown 监督，测试时再用已知验证流量校准拒识阈值。
 
-保留 30pktTCNET-adapted、NetMamba-adapted、SRViT-adapted、TrafficAudio-adapted 和 BPF-GNN-adapted。它们都接收相同的 `[30, 3]` 输入，是面向本项目输入的结构适配，不等同于原论文的完整数据管线。TrafficAudio 内部的 BiGRU 保留；GRU 和独立 Transformer 不单列。
+## 消融和基线
 
-## HSTA-CM-no-DFT 消融
+消融配置为：
 
-no-DFT 版本保留 Mamba、FlashAttention、融合层和分类头，仅将频域卷积分支替换为同宽、同深度、同样逐层残差的原始时域 `Conv1d` 分支。它与 `pooled` DFT 版本使用相同的 30 个注意力 Token 和约 665K 参数，因此是池化结构下隔离 DFT 的直接对照。当前 Token 主配置使用 46 个 Token、约 618K 参数；在正式论文中若采用该配置，必须另加一个 30 个原始时序 Token 的 raw-token 控制，不能直接把现有 no-DFT 数字解释为 Token 主模型的单因素 DFT 消融。
+- `no_conv-open`：移除卷积分支，只保留 Mamba 分支和融合/注意力部分；
+- `no_mamba-open`：移除 Mamba 分支，只保留卷积分支和融合/注意力部分；
+- `no_attention-open`：保留两条分支和融合层，移除 FlashAttention。
 
-## DFT 表示与筛选结论
+三个消融均为 256 维、61 类、seed 599，并使用同一时间划分与 unknown 来源。
 
-1. 对 30 个数据包位置沿时间轴执行 `torch.fft.rfft`，使用正交归一化。
-2. 幅值对照使用 `log1p` 压缩动态范围，输入为 `[B, 3, 16]`；紧凑主配置的实虚部输入为 `[B, 6, 16]`，保留相位相关信息，但这里不把实部/虚部误称为振幅/相位。实数序列的 `rFFT` 16 个复数点已经包含完整非冗余频谱；不能把 16 强行插值成 30 个包位置，因为频率轴和包序列轴语义不同。
-3. 三层带残差的 PyTorch `Conv1d` 使用大小为 `3` 的卷积核，在相邻频率点上建模。
-4. `pooled` 模式对频率轴做全局池化；`tokens` 模式保留 16 个频点，经频域局部卷积后直接参与 FlashAttention。后者用于检验“池化是否抹掉频点局部结构”，不是默认主配置的隐式替换。
+保留的适配基线为 30pktTCNET、NetMamba、SRViT、TrafficAudio 和 BPF-GNN。它们接收相同 `[30, 3]` 输入和 60 个已知标签，仅保留各自的核心建模思想，不声称复现原论文的完整字节、图像、音频或旁信息管线。TrafficAudio 内部的 BiGRU 属于该基线；独立 GRU 和 Transformer 不再单独运行。
 
-实数序列的 DFT 共轭对称，后半部分频率可以由前半部分恢复，因此 `rFFT` 的 16 个点已包含全部独立信息。CUDA 混合精度下先用 FP32 计算 FFT，以兼容长度 30。
+## 参数和实验口径
 
-历史筛选实验固定 TLS22-S/QUIC22-S、seed `599`、30 epoch；它们只用于选择结构。正式配置现在把最大训练轮数设为 100，验证集连续 15 轮没有改善即提前停止。TLS small 中，实虚部 Token + 时序汇聚的验证开放集 Macro-F1 约为 `0.794`，幅值 Token + 时序汇聚约为 `0.773`；QUIC small 中幅值 Token + 时序汇聚约为 `0.691`，实虚部 Token + 时序汇聚约为 `0.682`。QUIC 的 no-DFT 验证开放集 Macro-F1 约为 `0.693`，高于实虚部池化 DFT 的约 `0.667`。正式主结果必须按验证集规则选型，再用 `599、5009、813` 三个种子在 `paper` 规模重跑。
-
-设计依据可参考 [FNet](https://arxiv.org/abs/2105.03824) 的 Fourier token mixing、[TimesNet](https://arxiv.org/abs/2210.02186) 的时序变化建模，以及 [FEDformer](https://arxiv.org/abs/2201.12740) 的频域分解思路。它们支持保留频率结构并交给后续混合器，但不意味着对只有 30 个包的流量输入必然带来增益。
+参数量由配置中的输入通道、隐藏宽度、Mamba 层和分类头决定，与数据采样规模无关。small 只改变每类流量数量（训练/验证/测试上限为 `100/20/20`）。所有运行从第 1 轮开始，最多 100 轮，使用验证集已知类别 Macro-F1 调度学习率和早停，patience 为 15。

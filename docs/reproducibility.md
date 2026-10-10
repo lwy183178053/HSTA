@@ -2,44 +2,37 @@
 
 ## 环境
 
-Windows 检查和依赖安装使用 `D:\ProgramData\anaconda3\envs\mybase\python.exe`。Mamba、CUDA 和 FlashAttention 训练使用 `Ubuntu-22.04` 的 `/opt/traffic-mamba-venv`，不要使用其他 WSL 发行版。
+Windows 检查和依赖安装使用项目解释器：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
+& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m pip install -r requirements.txt
+powershell -ExecutionPolicy Bypass -File scripts\\check_environment.ps1
+```
+
+训练、Mamba 和 CUDA FlashAttention 使用 `Ubuntu-22.04` 与 `/opt/traffic-mamba-venv`：
+
+```powershell
 wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
 ```
 
-环境应提供当前 `mamba_ssm`、CUDA 和 PyTorch FlashAttention 后端。HSTA-CM-DFT 的注意力配置为 `attention_backend: flash`，不接受 CPU、数学实现或 memory-efficient 回退。
+正式配置要求 PyTorch FlashAttention 后端；环境缺少 CUDA 或后端时应先修复环境，不把 CPU 数学回退结果当作正式结果。
 
-## 数据准备
+## 数据
 
-使用现有 CESNET-TLS22-S 和 CESNET-QUIC22-S 文件。官方 PPI 固定为前 30 个包的 `IPT、DIR、SIZE` 三通道，短流由 DataZoo 补零。预处理为 100 个已知类别，并将其余全部应用形成 unknown 候选池；在折叠标签前按应用身份划分训练支持、验证留出和测试留出。每个日期划分中每类最多保留 10,000 条完整流；不足时保留全部。CSV 同时写出 `original_app`、`source_group` 和 `noise_family`，这些字段仅用于审计和分层统计，不进入模型。输出文件名不再附加序列长度后缀，但输入长度仍由 PPI 协议固定为 30。
+使用项目中已审计的 60 类 small CSV，不重新下载 CESNET 原始 H5：
 
-DataZoo 原生提供训练、验证和测试索引及 DataLoader。项目 CSV 只用于固定 unknown 应用清单、时间均衡采样和逐流来源审计；它不是完整 S 数据集的替代品。
-
-重新导出协议 CSV（默认使用 Top-100 以外的完整 unknown 候选池）：
-
-```powershell
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset tls --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --out-csv data/processed/datazoo_tls100_s_protocol.csv
-& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m data.preprocess --dataset quic --size S --topk 100 --max-train-per-class 10000 --max-val-per-class 10000 --max-test-per-class 10000 --out-csv data/processed/datazoo_quic100_s_protocol.csv
+```text
+data/processed/datazoo_tls60_s_protocol_small_sampled.csv
+data/processed/datazoo_quic60_s_protocol_small_sampled.csv
 ```
 
-从协议 CSV 创建小规模时间均衡数据集：
+对应的 `report.json`、`audit.json` 和 `sampling_manifest.json` 记录类别清单、时间划分、实际样本数、unknown 应用和噪声族。训练/验证/测试按完整 flow 分离；scaler 仅由训练数据拟合。若需重建缓存，必须使用与清单相同的类别映射、时间窗口和 seed 599，并重新运行数据审计。
 
-```bash
-python scripts/sample_temporal_dataset.py \
-  --input-csv data/processed/datazoo_tls100_s_protocol.csv \
-  --output-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv \
-  --dataset tls --profile small --seed 599
-```
-
-采样完成后运行 `scripts/audit_open_set_dataset.py`。只有审计通过的 CSV 才能用于正式开放集实验；旧 CSV 因缺少 unknown 来源元数据，只能作为历史流程文件。
-
-每类训练/验证/测试上限为：`small=100/20/20`、`medium=1000/200/200`、`paper=10000/1000/2000`。采样在已有时间划分内进行，以完整流为单位，不把同一流拆到不同集合。这里的 profile 只改变数据集规模，不改变模型参数。
+small 每类目标数量为训练 100、验证 20、测试 20；不足时保留全部。TLS 验证集中部分类别样本不足，复现报告须同时保留每类支持数。
 
 ## 运行
 
-在 WSL 中执行：
+在 WSL 项目根目录执行：
 
 ```bash
 bash scripts/run_wsl_experiments.sh main
@@ -47,24 +40,25 @@ bash scripts/run_wsl_experiments.sh ablation
 bash scripts/run_wsl_experiments.sh efficiency
 ```
 
-首次低成本流程检查：
+`main` 读取 `configs/compact_s.yaml`，运行 TLS60/QUIC60 的 HSTA-CM-open、HSTA-CM-closed 和五个基线；`ablation` 读取 `configs/hsta_cm_ablation_s.yaml`，运行三个组件消融。两个入口均从空的结果目录启动，不使用旧 checkpoint。效率入口只测 batch size `1、8、32`。
 
-```bash
-bash scripts/run_wsl_experiments.sh small_tls
-bash scripts/run_wsl_experiments.sh small_quic
+训练上限为 100 轮，验证集已知 Macro-F1 连续 15 轮没有提升即早停。每个目录写入 `config.yaml`、`history.csv`、最佳和最近检查点、`summary.csv`、`metrics.json` 以及逐样本预测。`metrics.json` 同时包含 raw argmax 和 threshold rejection；阈值只由已知验证流量校准。
+
+## 验证
+
+运行前执行：
+
+```powershell
+& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m pytest -q
+& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m compileall -q models data scripts train.py run_experiments.py evaluate.py
 ```
 
-`main` 使用 `configs/compact_s.yaml`，其中 HSTA-CM-DFT 是主模型，HSTA-CM-no-DFT 是 DFT 组件对照；`ablation` 使用 `configs/hsta_cm_ablation_s.yaml`。训练采用配置文件中的 AdamW、验证集 Macro-F1 早停和最优检查点；实际种子、模型配置、类别映射、标准化参数、FlashAttention 后端和开放集指标会写入检查点目录。
+并确认两个数据审计报告均显示 60 个已知类、unknown 来源隔离、噪声族互斥和无 flow 交集。CUDA smoke test 应验证 HSTA-CM-open 输入 `(2,30,3)` 输出 `(2,61)`，closed 输出 `(2,60)`。结果汇总：
 
-正式配置的训练上限为 100 轮，验证集连续 15 轮没有改善时提前停止。运行入口默认带
-`--resume --extend`：若目录已有 `latest.pt`，从保存的 epoch 继续，并恢复模型、AdamW、GradScaler
-和学习率调度器状态；`reset_optimizer_on_extend: true` 才会显式重置优化器。首次运行没有检查点时会从第 1 轮开始。
+```bash
+python scripts/summarize_compact_results.py
+```
 
-每个实验目录中的文件用途如下：`best.pt` 是验证指标最佳的检查点，`latest.pt` 是可继续训练的最近状态，
-`history.csv` 保存逐轮曲线，`summary.csv` 是精简标量表，`metrics.json` 保存完整 raw/threshold 指标、
-分类报告、混淆矩阵和配置。多个实验合并后的 `all_results.csv` 也只保留精简标量字段；论文主表再由
-`scripts/summarize_compact_results.py` 生成。
+## 版本和归档
 
-## 结果与版本管理
-
-结果、日志、数据和检查点存放在被 Git 忽略的目录中。禁止提交原始 H5、检查点、凭据或本地环境。主结果应报告已知分类指标、未知拒识指标、误拒率、参数量和效率指标；HSTA-CM-DFT-open 的三个种子报告均值和标准差。留出应用和独立噪声生成族必须保持测试专用。
+代码、配置和文档由 Git 保存；`data/`、`results/`、`logs/`、检查点和原始流量保持忽略。提交前运行 `git diff --check`，确认提交中没有本地数据、凭据或环境文件。论文只引用通过审计且保存了配置、seed、类别映射、scaler、阈值及来源分层指标的运行。

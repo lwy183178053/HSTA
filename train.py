@@ -76,6 +76,7 @@ def eval_model(
     unknown_index: int | None = None,
     classes=None,
     reject_threshold: float | None = None,
+    source_groups=None,
 ):
     model.eval()
     criterion = nn.CrossEntropyLoss()
@@ -146,6 +147,25 @@ def eval_model(
     metrics["raw_open_set_macro_f1"] = raw_open["open_set_macro_f1"]
     metrics["threshold_open_set_macro_f1"] = threshold_open["open_set_macro_f1"]
     metrics["open_set_macro_f1"] = threshold_open["open_set_macro_f1"]
+    if source_groups is not None:
+        source_groups = np.asarray(source_groups, dtype=str).reshape(-1)
+        if source_groups.shape[0] != y_true.shape[0]:
+            raise ValueError("source_groups must align with evaluation samples")
+        grouped = {}
+        for group in sorted(set(source_groups.tolist())):
+            mask = source_groups == group
+            if not np.any(mask):
+                continue
+            grouped[group] = {
+                "count": int(np.sum(mask)),
+                "raw": open_set_metrics(
+                    y_true[mask], y_pred[mask], logits[mask], classes, unknown_index, None,
+                ),
+                "threshold": open_set_metrics(
+                    y_true[mask], y_pred[mask], logits[mask], classes, unknown_index, reject_threshold,
+                ),
+            }
+        metrics["source_group_metrics"] = grouped
     return (
         metrics,
         y_true,
@@ -212,26 +232,14 @@ def _load_state_dict(path: Path, device):
 
 
 def load_model_state(model, state_dict: dict, context: str = "checkpoint"):
-    """Load a checkpoint while allowing explicitly approved new parameters.
+    """Load a checkpoint with the current model layout.
 
-    DFT probes created before the learnable ``dft_scale`` parameter was added
-    can continue training with that scalar initialized from the current model
-    configuration. Shape changes and unrelated missing keys still fail loudly.
+    The active 60-class protocol starts every run from a fresh model.  Resume
+    checkpoints therefore must match the current architecture exactly; legacy
+    parameters are intentionally not migrated or silently ignored.
     """
-
-    try:
-        model.load_state_dict(state_dict)
-        return
-    except RuntimeError as strict_error:
-        try:
-            incompatible = model.load_state_dict(state_dict, strict=False)
-        except RuntimeError:
-            raise strict_error
-        missing = set(incompatible.missing_keys)
-        unexpected = set(incompatible.unexpected_keys)
-        if unexpected or not missing.issubset({"dft_scale"}):
-            raise strict_error
-        print(f"[checkpoint] {context}: initialized new parameter(s): {sorted(missing)}")
+    del context
+    model.load_state_dict(state_dict, strict=True)
 
 
 def _load_training_checkpoint(path: Path, model, optimizer, scaler, scheduler, device, load_optimizer: bool = True):
@@ -589,6 +597,7 @@ def train_one(cfg: dict):
         model, loaders["test"], device, amp=use_amp,
         unknown_index=loaders.get("unknown_index"), classes=loaders.get("classes"),
         reject_threshold=reject_threshold,
+        source_groups=loaders.get("test_source_groups"),
     )
     report = classification_report(
         y_true,

@@ -9,58 +9,28 @@ export PYTHONUNBUFFERED=1
 mkdir -p logs
 
 case "$MODE" in
-  main|main_all|compact_s)
-    python run_experiments.py --config configs/compact_s.yaml --resume --extend
-    ;;
-  small_tls|open_set_tls_seed599)
-    # One deterministic TLS22-S small run with DFT-HSTA-open, its closed-set
-    # unknown ablation, the no-DFT component ablation and retained baselines.
+  main)
+    # TLS60 和 QUIC60 的主比较，从第 1 轮开始，不复用旧结果。
     python run_experiments.py \
       --config configs/compact_s.yaml \
-      --output-dir results/open_set_tls_seed599 \
-      --data-csv data/processed/datazoo_tls100_s_protocol_small_sampled.csv \
-      --only \
-        hsta_cm_dft_tls22_s_seed599 \
-        hsta_cm_dft_closed_tls22_s_seed599 \
-        hsta_cm_no_dft_tls22_s_seed599 \
-        tcnet_tls22_s \
-        netmamba_tls22_s \
-        srvit_tls22_s \
-        trafficaudio_tls22_s \
-        bpfgnn_tls22_s \
-      --resume --extend
+      --force --no-resume
     ;;
-  small_quic|open_set_quic_seed599)
-    # One deterministic QUIC22-S small run under the same open-set protocol.
+  ablation)
+    # HSTA-CM 的 no-conv、no-mamba、no-attention 组件检查。
     python run_experiments.py \
-      --config configs/compact_s.yaml \
-      --output-dir results/open_set_quic_seed599 \
-      --data-csv data/processed/datazoo_quic100_s_protocol_small_sampled.csv \
-      --only \
-        hsta_cm_dft_quic22_s_seed599 \
-        hsta_cm_dft_closed_quic22_s_seed599 \
-        hsta_cm_no_dft_quic22_s_seed599 \
-        tcnet_quic22_s \
-        netmamba_quic22_s \
-        srvit_quic22_s \
-        trafficaudio_quic22_s \
-        bpfgnn_quic22_s \
-      --resume --extend
-    ;;
-  ablation|compact_ablation_s)
-    python run_experiments.py --config configs/hsta_cm_ablation_s.yaml --resume --extend
+      --config configs/hsta_cm_ablation_s.yaml \
+      --force --no-resume
     ;;
   efficiency)
-    python benchmark_efficiency.py --output-dir results/efficiency_benchmark
-    ;;
-  small60)
-    # 60 known classes + unknown, 256-dimensional HSTA-CM screening run.
-    python run_experiments.py \
-      --config configs/compact_s_60_dim256.yaml \
-      --resume
+    # 只测用户要求的三个 batch size。
+    python benchmark_efficiency.py \
+      --configs configs/compact_s.yaml configs/hsta_cm_ablation_s.yaml \
+      --output-dir results/efficiency_benchmark \
+      --batch-sizes 1 8 32 \
+      --seed 599
     ;;
   *)
-    echo "Usage: $0 {main|main_all|compact_s|small_tls|small_quic|small60|ablation|efficiency}" >&2
+    echo "Usage: $0 {main|ablation|efficiency}" >&2
     exit 2
     ;;
 esac

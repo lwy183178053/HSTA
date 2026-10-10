@@ -1,4 +1,4 @@
-"""Focused model tests for HSTA-CM and its retained baselines."""
+"""Structural checks for HSTA-CM and the retained baseline registry."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ import importlib.util
 import pytest
 import torch
 
-pytest.importorskip("mamba_ssm")
-
 from models import build_model
-from models.flash_attention import FlashSelfAttention
+from models.flash_attention import FlashAttentionBlock, FlashSelfAttention
 
 
 def test_flash_attention_is_strict_and_has_no_manual_backend():
@@ -22,24 +20,38 @@ def test_flash_attention_is_strict_and_has_no_manual_backend():
 
 
 @pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for mamba_ssm")
-def test_hsta_cm_dft_main_has_frequency_conv_mamba_and_flash_attention_components():
+def test_hsta_cm_has_three_conv_two_mamba_position_and_flash_attention_components():
     model = build_model(
-        "hsta-cm-dft",
+        "hsta-cm",
         input_dim=3,
-        num_classes=101,
+        num_classes=61,
         seq_len=30,
-        cfg={
-            "dim": 32,
-            "heads": 4,
-            "dropout": 0.0,
-            "spatial_conv": True,
-            "temporal_mamba": True,
-            "spatial_branch": True,
-            "use_attention": True,
-            "attention_backend": "flash",
-        },
-    ).cuda().eval()
-    assert any(isinstance(module, torch.nn.Conv1d) for module in model.modules())
-    assert any("Mamba" in module.__class__.__name__ for module in model.modules())
+        cfg={"dim": 256, "heads": 4, "dropout": 0.0, "depth": 2, "attention_backend": "flash"},
+    )
+    assert model.layout == (
+        "conv1d_x3_residual", "mamba_x2_residual", "fusion_fc", "flash_attention", "norm_head"
+    )
+    assert model.position.shape == (1, 30, 256)
+    assert len(model.spatial) == 3
+    assert sum(isinstance(module, torch.nn.Conv1d) for module in model.spatial.modules()) == 3
+    assert len(model.temporal) == 2
+    assert all("Mamba" in block.mixer.__class__.__name__ for block in model.temporal)
+    assert isinstance(model.attention, FlashAttentionBlock)
     assert any(isinstance(module, FlashSelfAttention) for module in model.modules())
+    assert model.head.in_features == 256
+    assert model.head.out_features == 61
+
+
+@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
+def test_hsta_cm_ablation_flags_remove_only_requested_components():
+    no_conv = build_model("hsta-cm", 3, 61, 30, {"dim": 256, "use_conv": False})
+    no_mamba = build_model("hsta-cm", 3, 61, 30, {"dim": 256, "use_mamba": False})
+    no_attention = build_model("hsta-cm", 3, 61, 30, {"dim": 256, "use_attention": False})
+    assert no_conv.spatial is None and len(no_conv.temporal) == 2
+    assert len(no_mamba.temporal) == 0 and len(no_mamba.spatial) == 3
+    assert isinstance(no_attention.attention, torch.nn.Identity)
+
+
+def test_legacy_hsta_registry_name_is_removed():
+    with pytest.raises(ValueError):
+        build_model("hsta", input_dim=3, num_classes=61, seq_len=30, cfg={})

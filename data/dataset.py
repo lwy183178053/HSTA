@@ -22,6 +22,7 @@ class SequenceData:
     X: np.ndarray
     y: np.ndarray
     splits: np.ndarray | None
+    source_groups: np.ndarray | None
     feature_cols: list[str]
     label_encoder: "StableLabelEncoder"
 
@@ -96,11 +97,11 @@ def load_sequence_csv(
             raise ValueError(f"CSV is missing feature column: {col}")
 
     selected_columns = list(dict.fromkeys(
-        [column for column in ("flow_id", label_col, split_col) if column in columns]
+        [column for column in ("flow_id", label_col, split_col, "source_group") if column in columns]
         + list(feature_cols)
     ))
 
-    flows, labels, splits = [], [], []
+    flows, labels, splits, source_groups = [], [], [], []
     dropped = 0
 
     def append_group(group: pd.DataFrame) -> None:
@@ -112,6 +113,8 @@ def load_sequence_csv(
         labels.append(unknown_label if label.strip().lower() in UNKNOWN_LABEL_ALIASES else label)
         if split_col in group.columns:
             splits.append(str(group[split_col].iloc[0]).lower())
+        if "source_group" in group.columns:
+            source_groups.append(str(group["source_group"].iloc[0] or ""))
 
     carry = None
     reader = pd.read_csv(
@@ -147,6 +150,8 @@ def load_sequence_csv(
             )
             if split_col in chunk.columns:
                 splits.extend(str(value).lower() for value in chunk[split_col].tolist())
+            if "source_group" in chunk.columns:
+                source_groups.extend(str(value or "") for value in chunk["source_group"].tolist())
 
     if carry is not None and not carry.empty:
         append_group(carry)
@@ -161,10 +166,12 @@ def load_sequence_csv(
     label_encoder = StableLabelEncoder(unique_labels)
     y = label_encoder.transform(np.asarray(labels, dtype=str))
     split_arr = np.asarray(splits) if splits else None
+    source_group_arr = np.asarray(source_groups, dtype=str) if source_groups else None
     return SequenceData(
         X=np.stack(flows).astype("float32"),
         y=y.astype("int64"),
         splits=split_arr,
+        source_groups=source_group_arr,
         feature_cols=feature_cols,
         label_encoder=label_encoder,
     )
@@ -180,10 +187,13 @@ def _split_by_column(data: SequenceData):
     return (
         data.X[masks["train"]],
         data.y[masks["train"]],
+        data.source_groups[masks["train"]] if data.source_groups is not None else None,
         data.X[masks["val"]],
         data.y[masks["val"]],
+        data.source_groups[masks["val"]] if data.source_groups is not None else None,
         data.X[masks["test"]],
         data.y[masks["test"]],
+        data.source_groups[masks["test"]] if data.source_groups is not None else None,
     )
 
 
@@ -217,7 +227,7 @@ def make_loaders(
         if not allow_random_split:
             raise ValueError("Processed CSV must contain non-empty train, val and test split columns")
         raise ValueError("Random splitting is intentionally disabled for the temporal benchmark")
-    X_train, y_train, X_val, y_val, X_test, y_test = split
+    X_train, y_train, train_groups, X_val, y_val, val_groups, X_test, y_test, test_groups = split
     (X_train, X_val, X_test), scaler = _scale_from_train(X_train, X_val, X_test)
 
     # Closed-set baselines learn only the known application classes. Unknown
@@ -232,6 +242,8 @@ def make_loaders(
         known_mask = y_train != int(unknown_index)
         X_train = X_train[known_mask]
         y_train = y_train[known_mask]
+        if train_groups is not None:
+            train_groups = train_groups[known_mask]
         output_classes -= 1
         if not output_classes:
             raise ValueError("train_unknown=False requires at least one known class")
@@ -268,5 +280,8 @@ def make_loaders(
         "train_unknown": bool(train_unknown),
         "feature_cols": data.feature_cols,
         "scaler": scaler,
+        "train_source_groups": train_groups,
+        "val_source_groups": val_groups,
+        "test_source_groups": test_groups,
     }
     return loaders
