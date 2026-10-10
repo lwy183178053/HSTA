@@ -49,6 +49,6 @@ python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls
 bash scripts/run_wsl_experiments.sh quick_tls
 ```
 
-The subset profiles use per-class caps of train/validation/test `100/20/20` (`tiny`), `500/100/100` (`small`), and `1000/200/200` (`medium`). These profiles change only how many flows are sampled; they do not change the model architecture, hidden widths, layer counts, or parameter count. The split labels retain the DataZoo temporal windows: earlier days for training, the following validation window, and the later week for testing.
+The subset profiles use per-class caps of train/validation/test `100/20/20` (`tiny`), `500/100/100` (`small`), `1000/200/200` (`medium`), and `10000/1000/2000` (`paper`). The generated `data/processed/datazoo_tls100_s_seq30_<profile>.csv` and `data/processed/datazoo_quic100_s_seq30_<profile>.csv` files use the same class mapping and temporal windows. These profiles change only how many flows are sampled; they do not change the model architecture, hidden widths, layer counts, or parameter count. The split labels retain the DataZoo temporal windows: earlier days for training, the following validation window, and the later week for testing.
 
 The compact matrix reports macro-F1, known accuracy, unknown recall/precision/F1, known-to-unknown false acceptance rate, parameter count, and runtime. `scripts/summarize_compact_results.py` aggregates completed runs.
