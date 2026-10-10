@@ -6,11 +6,11 @@ HSTA-CM consumes the first 30 packets of each flow as a `[B, 30, 3]` tensor: pac
 2. The temporal state-space branch uses two `mamba_ssm` Mamba blocks to encode ordered dependencies and adds a residual from the temporal embedding.
 3. Concatenated streams pass through a fully connected fusion layer and a sigmoid gate. A learned packet-position embedding is added to the fused sequence before attention so packet order remains explicit even when the Mamba branch is ablated.
 4. One `FlashSelfAttention` block calls PyTorch scaled dot-product attention with the Flash backend only. CPU, FP32, math, and memory-efficient fallbacks are rejected. The attention ablation replaces this block with an identity path and keeps the same fusion and classification head.
-5. Layer normalization, mean pooling, and a 101-way head produce the 100 known classes plus `unknown`.
+5. Layer normalization, mean pooling, and a 101-way head produce the 100 known classes plus `unknown` for HSTA-CM-open. The closed HSTA control and adapted baselines use the same representation but a 100-way head and no unknown training target.
 
 The component ablations disable the Conv1d branch or Mamba branch by replacing the removed branch with a zero tensor of the same hidden width. This isolates the contribution of each branch without changing the fusion head shape.
 
-The open-set protocol maps held-out DataZoo applications and deterministic synthetic noise flows to `unknown`. The label encoder always keeps this class at index 100. Training, validation, and testing are disjoint date windows.
+The open-set protocol maps held-out DataZoo applications and synthetic noise flows to `unknown`. HSTA-CM-open receives only the declared training unknown-support source; held-out applications and an unseen test noise family are never used for training. A closed-set model has no unknown output and uses a threshold on `1 - max(softmax)` calibrated from known validation flows. The label encoder keeps the explicit class at index 100 when it is present. Training, validation, and testing are disjoint date windows.
 
 The comparison set is deliberately small: 30pktTCNET-adapted and NetMamba-adapted are shared-input reference methods; SRViT-adapted, TrafficAudio-adapted, and BPF-GNN-adapted are the three retained recent baselines requested for the paper revision. These are structural adaptations under the common `[30, 3]` input, not full reproductions of the original raw-byte, image, audio, or side-information pipelines. TrafficAudio's internal BiGRU remains part of that reference architecture; only the independent GRU baseline is removed.
 

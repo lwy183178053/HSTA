@@ -11,7 +11,7 @@ base:
   lr_factor: 0.5
   lr_patience: 2
   min_lr: 0.000001
-  early_stop_metric: val_macro_f1
+  early_stop_metric: val_known_macro_f1
   early_stop_min_delta: 0.0005
   seq_len: 30
   amp: true
@@ -29,23 +29,28 @@ base:
     max_len: 30
     conv_kernel_size: 3
     attention_backend: flash
+  train_unknown: true
+  calibrate_reject_threshold: true
+  reject_threshold_quantile: 0.95
 
 experiments:
   - {exp_name: hsta_cm_tls22_s_seed599, model: hsta-cm, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599}
   - {exp_name: hsta_cm_tls22_s_seed5009, model: hsta-cm, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 5009}
   - {exp_name: hsta_cm_tls22_s_seed813, model: hsta-cm, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 813}
+  - {exp_name: hsta_cm_closed_tls22_s_seed599, model: hsta-cm, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false}
   - {exp_name: hsta_cm_dft_tls22_s_seed599, model: hsta-cm-dft, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599}
-  - {exp_name: tcnet_tls22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, model_cfg: {depth: 5}}
-  - {exp_name: netmamba_tls22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, model_cfg: {depth: 5, max_len: 256}}
-  - {exp_name: srvit_tls22_s, model: srvit, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, model_cfg: {depth: 4}}
-  - {exp_name: trafficaudio_tls22_s, model: trafficaudio, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}}
-  - {exp_name: bpfgnn_tls22_s, model: bpf-gnn, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599}
+  - {exp_name: tcnet_tls22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 5}}
+  - {exp_name: netmamba_tls22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 5, max_len: 256}}
+  - {exp_name: srvit_tls22_s, model: srvit, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 4}}
+  - {exp_name: trafficaudio_tls22_s, model: trafficaudio, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}}
+  - {exp_name: bpfgnn_tls22_s, model: bpf-gnn, data_csv: data/processed/datazoo_tls100_s_seq30.csv, seed: 599, train_unknown: false}
   - {exp_name: hsta_cm_quic22_s_seed599, model: hsta-cm, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599}
   - {exp_name: hsta_cm_quic22_s_seed5009, model: hsta-cm, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 5009}
   - {exp_name: hsta_cm_quic22_s_seed813, model: hsta-cm, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 813}
+  - {exp_name: hsta_cm_closed_quic22_s_seed599, model: hsta-cm, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false}
   - {exp_name: hsta_cm_dft_quic22_s_seed599, model: hsta-cm-dft, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599}
-  - {exp_name: tcnet_quic22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, model_cfg: {depth: 5}}
-  - {exp_name: netmamba_quic22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, model_cfg: {depth: 5, max_len: 256}}
-  - {exp_name: srvit_quic22_s, model: srvit, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, model_cfg: {depth: 4}}
-  - {exp_name: trafficaudio_quic22_s, model: trafficaudio, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}}
-  - {exp_name: bpfgnn_quic22_s, model: bpf-gnn, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599}
+  - {exp_name: tcnet_quic22_s, model: 30pkttcnet-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 5}}
+  - {exp_name: netmamba_quic22_s, model: netmamba-adapted, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 5, max_len: 256}}
+  - {exp_name: srvit_quic22_s, model: srvit, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {depth: 4}}
+  - {exp_name: trafficaudio_quic22_s, model: trafficaudio, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false, model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}}
+  - {exp_name: bpfgnn_quic22_s, model: bpf-gnn, data_csv: data/processed/datazoo_quic100_s_seq30.csv, seed: 599, train_unknown: false}

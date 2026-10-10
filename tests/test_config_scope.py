@@ -107,6 +107,17 @@ def test_compact_matrix_contains_primary_comparisons_and_dft_extension():
         assert audio_cfg["n_mels"] <= audio_cfg["n_fft"] // 2 + 1
     model_cfg = cfg.get("base", {}).get("model_cfg", {})
     assert model_cfg.get("attention_backend") == "flash"
+    by_name = {str(exp["exp_name"]): exp for exp in cfg.get("experiments", [])}
+    assert all(by_name[name].get("train_unknown", True) for name in (
+        "hsta_cm_tls22_s_seed599", "hsta_cm_dft_tls22_s_seed599",
+        "hsta_cm_quic22_s_seed599", "hsta_cm_dft_quic22_s_seed599",
+    ))
+    assert all(not by_name[name].get("train_unknown", True) for name in (
+        "tcnet_tls22_s", "netmamba_tls22_s", "srvit_tls22_s",
+        "trafficaudio_tls22_s", "bpfgnn_tls22_s", "tcnet_quic22_s",
+        "netmamba_quic22_s", "srvit_quic22_s", "trafficaudio_quic22_s",
+        "bpfgnn_quic22_s",
+    ))
 
 
 def test_hsta_cm_ablation_matrix_is_four_by_two():

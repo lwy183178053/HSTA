@@ -209,6 +209,7 @@ def make_loaders(
     num_workers: int = 0,
     unknown_label: str = "unknown",
     allow_random_split: bool = False,
+    train_unknown: bool = True,
 ):
     data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols, unknown_label=unknown_label)
     split = _split_by_column(data)
@@ -218,6 +219,22 @@ def make_loaders(
         raise ValueError("Random splitting is intentionally disabled for the temporal benchmark")
     X_train, y_train, X_val, y_val, X_test, y_test = split
     (X_train, X_val, X_test), scaler = _scale_from_train(X_train, X_val, X_test)
+
+    # Closed-set baselines learn only the known application classes. Unknown
+    # flows remain in validation/test so their rejection performance can be
+    # measured, but they must not contribute to the training loss.
+    unknown_index = next(
+        (index for index, name in enumerate(data.label_encoder.classes_) if str(name) == str(unknown_label)),
+        None,
+    )
+    output_classes = int(len(data.label_encoder.classes_))
+    if not train_unknown and unknown_index is not None:
+        known_mask = y_train != int(unknown_index)
+        X_train = X_train[known_mask]
+        y_train = y_train[known_mask]
+        output_classes -= 1
+        if not output_classes:
+            raise ValueError("train_unknown=False requires at least one known class")
 
     pin_memory = torch.cuda.is_available()
     loaders = {
@@ -244,13 +261,11 @@ def make_loaders(
         ),
         "input_dim": int(data.X.shape[-1]),
         "seq_len": int(data.X.shape[1]),
-        "num_classes": int(len(data.label_encoder.classes_)),
+        "num_classes": output_classes,
         "classes": [str(c) for c in data.label_encoder.classes_],
         "unknown_label": str(unknown_label),
-        "unknown_index": next(
-            (index for index, name in enumerate(data.label_encoder.classes_) if str(name) == str(unknown_label)),
-            None,
-        ),
+        "unknown_index": unknown_index,
+        "train_unknown": bool(train_unknown),
         "feature_cols": data.feature_cols,
         "scaler": scaler,
     }

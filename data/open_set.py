@@ -9,6 +9,32 @@ from sklearn.metrics import f1_score, roc_auc_score
 UNKNOWN_LABELS = {"unknown", "_unknown", "__unknown__"}
 
 
+def unknownness_from_logits(logits) -> np.ndarray:
+    """Return ``1 - max softmax`` as a model-agnostic reject score."""
+    logits = np.asarray(logits, dtype=np.float64)
+    if logits.ndim != 2:
+        raise ValueError("logits must have shape [num_samples, num_classes]")
+    shifted = logits - np.max(logits, axis=1, keepdims=True)
+    probs = np.exp(shifted)
+    probs /= np.maximum(np.sum(probs, axis=1, keepdims=True), 1e-12)
+    return 1.0 - np.max(probs, axis=1)
+
+
+def unknown_score_from_logits(logits, unknown_index: int | None = None) -> np.ndarray:
+    """Return the score used by the fixed reject-threshold protocol.
+
+    A model with an explicit unknown output uses that probability. A closed
+    100-way model uses ``1 - max(p_known)`` instead.
+    """
+    logits = np.asarray(logits, dtype=np.float64)
+    shifted = logits - np.max(logits, axis=1, keepdims=True)
+    probs = np.exp(shifted)
+    probs /= np.maximum(np.sum(probs, axis=1, keepdims=True), 1e-12)
+    if unknown_index is not None and int(unknown_index) < probs.shape[1]:
+        return probs[:, int(unknown_index)]
+    return 1.0 - np.max(probs, axis=1)
+
+
 def unknown_class_index(classes: list[str] | tuple[str, ...] | None) -> int | None:
     """Return the explicit unknown class index, if the label map contains one."""
     if not classes:

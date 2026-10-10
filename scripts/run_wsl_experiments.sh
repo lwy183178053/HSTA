@@ -12,14 +12,17 @@ case "$MODE" in
   main|main_all|compact_s)
     python run_experiments.py --config configs/compact_s.yaml --resume
     ;;
-  quick_tls|compact_s_tls_seed599)
-    # One deterministic TLS22-S tiny balanced temporal subset comparison.
+  quick_tls|open_set_tls_seed599)
+    # One deterministic TLS22-S tiny run with HSTA-open, HSTA-closed and
+    # closed-set baselines. The old compact_s_tls_seed599 directory contains
+    # the pre-protocol 101-way baseline results and is not comparable.
     python run_experiments.py \
       --config configs/compact_s.yaml \
-      --output-dir results/compact_s_tls_seed599 \
+      --output-dir results/open_set_tls_seed599 \
       --data-csv data/processed/datazoo_tls100_s_seq30_tiny.csv \
       --only \
         hsta_cm_tls22_s_seed599 \
+        hsta_cm_closed_tls22_s_seed599 \
         hsta_cm_dft_tls22_s_seed599 \
         tcnet_tls22_s \
         netmamba_tls22_s \
@@ -28,14 +31,15 @@ case "$MODE" in
         bpfgnn_tls22_s \
       --resume
     ;;
-  quick_quic|compact_s_quic_seed599)
-    # One deterministic QUIC22-S tiny balanced temporal subset comparison.
+  quick_quic|open_set_quic_seed599)
+    # One deterministic QUIC22-S tiny run under the same open-set protocol.
     python run_experiments.py \
       --config configs/compact_s.yaml \
-      --output-dir results/compact_s_quic_seed599 \
+      --output-dir results/open_set_quic_seed599 \
       --data-csv data/processed/datazoo_quic100_s_seq30_tiny.csv \
       --only \
         hsta_cm_quic22_s_seed599 \
+        hsta_cm_closed_quic22_s_seed599 \
         hsta_cm_dft_quic22_s_seed599 \
         tcnet_quic22_s \
         netmamba_quic22_s \

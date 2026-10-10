@@ -9,11 +9,11 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import yaml
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score, precision_recall_fscore_support
 from tqdm import tqdm
 
 from data.dataset import make_loaders
-from data.open_set import open_set_metrics
+from data.open_set import open_set_metrics, unknown_score_from_logits
 from models import build_model
 from utils import count_parameters, ensure_dir, save_json, seed_everything
 
@@ -29,7 +29,15 @@ def _grad_scaler(enabled: bool):
         return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
-def eval_model(model, loader, device, amp: bool = False, unknown_index: int | None = None, classes=None):
+def eval_model(
+    model,
+    loader,
+    device,
+    amp: bool = False,
+    unknown_index: int | None = None,
+    classes=None,
+    reject_threshold: float | None = None,
+):
     model.eval()
     criterion = nn.CrossEntropyLoss()
     losses, y_true, y_pred, logits_all = [], [], [], []
@@ -39,13 +47,28 @@ def eval_model(model, loader, device, amp: bool = False, unknown_index: int | No
             y = y.to(device)
             with _autocast(bool(amp and str(device).startswith("cuda"))):
                 logits = model(x)
-                loss = criterion(logits, y)
+                # Closed-set baselines have no unknown output neuron. Their
+                # validation/test batches still contain unknown examples, so
+                # compute CE only for labels represented by the model head.
+                valid_labels = y < logits.shape[1]
+                loss = criterion(logits[valid_labels], y[valid_labels]) if torch.any(valid_labels) else logits.sum() * 0.0
             losses.append(float(loss.item()))
             y_true.extend(y.detach().cpu().numpy())
             y_pred.extend(logits.argmax(dim=1).detach().cpu().numpy())
             logits_all.append(logits.detach().float().cpu().numpy())
-    accuracy = accuracy_score(y_true, y_pred)
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
+    # For a closed-set baseline, unknown labels are deliberately excluded
+    # from the supervised validation metric because the head has no unknown
+    # class. They are retained in the returned arrays for open-set scoring.
+    logits_preview = logits_all[0] if logits_all else None
+    known_eval_mask = None
+    if unknown_index is not None and logits_preview is not None and logits_preview.shape[1] <= int(unknown_index):
+        known_eval_mask = y_true != int(unknown_index)
+    metric_y_true = y_true[known_eval_mask] if known_eval_mask is not None else y_true
+    metric_y_pred = y_pred[known_eval_mask] if known_eval_mask is not None else y_pred
+    accuracy = accuracy_score(metric_y_true, metric_y_pred)
+    precision, recall, f1, _ = precision_recall_fscore_support(metric_y_true, metric_y_pred, average="macro", zero_division=0)
     metrics = {
             "loss": float(np.mean(losses)),
             "accuracy": float(accuracy),
@@ -53,12 +76,59 @@ def eval_model(model, loader, device, amp: bool = False, unknown_index: int | No
             "macro_recall": float(recall),
             "macro_f1": float(f1),
         }
-    metrics.update(open_set_metrics(y_true, y_pred, np.concatenate(logits_all), classes, unknown_index))
+    logits = np.concatenate(logits_all)
+    if unknown_index is not None:
+        known_mask = y_true != int(unknown_index)
+        known_labels = np.arange(len(classes or []), dtype=np.int64)
+        if known_labels.size and int(unknown_index) < known_labels.size:
+            known_labels = known_labels[known_labels != int(unknown_index)]
+        if np.any(known_mask):
+            known_precision, known_recall, known_f1, _ = precision_recall_fscore_support(
+                y_true[known_mask], y_pred[known_mask], labels=known_labels, average="macro", zero_division=0,
+            )
+            metrics.update({
+                "known_macro_precision": float(known_precision),
+                "known_macro_recall": float(known_recall),
+                "known_macro_f1": float(known_f1),
+            })
+    raw_open = open_set_metrics(y_true, y_pred, logits, classes, unknown_index, None)
+    for key in ("unknown_recall", "unknown_precision", "unknown_f1", "known_false_unknown_rate", "open_set_accuracy", "unknown_auroc"):
+        metrics[f"raw_{key}"] = raw_open[key]
+    metrics["raw_open_set_macro_f1"] = float(
+        f1_score(y_true, y_pred, average="macro", zero_division=0)
+    )
+    open_pred = y_pred.copy()
+    if reject_threshold is not None and unknown_index is not None:
+        scores = unknown_score_from_logits(logits, unknown_index)
+        open_pred[scores >= float(reject_threshold)] = int(unknown_index)
+    metrics["open_set_macro_f1"] = float(
+        f1_score(y_true, open_pred, average="macro", zero_division=0)
+    )
+    metrics.update(open_set_metrics(y_true, y_pred, logits, classes, unknown_index, reject_threshold))
     return (
         metrics,
-        np.asarray(y_true),
-        np.asarray(y_pred),
+        y_true,
+        y_pred,
     )
+
+
+def calibrate_reject_threshold(model, loader, device, amp: bool, unknown_index: int | None, quantile: float) -> float | None:
+    """Calibrate a closed-set reject threshold using known validation flows only."""
+    if unknown_index is None:
+        return None
+    model.eval()
+    scores = []
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            with _autocast(bool(amp and str(device).startswith("cuda"))):
+                logits = model(x)
+            logits_np = logits.detach().float().cpu().numpy()
+            y_np = y.detach().cpu().numpy()
+            scores.extend(unknown_score_from_logits(logits_np, unknown_index)[y_np != int(unknown_index)].tolist())
+    if not scores:
+        return None
+    return float(np.quantile(np.asarray(scores, dtype=np.float64), float(quantile)))
 
 
 def _metric_improved(value: float, best: float, mode: str, min_delta: float) -> bool:
@@ -129,6 +199,7 @@ def train_one(cfg: dict):
         val_size=float(cfg.get("val_size", 0.1)),
         seed=int(cfg.get("seed", 42)),
         num_workers=int(cfg.get("num_workers", 0)),
+        train_unknown=bool(cfg.get("train_unknown", True)),
     )
     model = build_model(
         cfg["model"],
@@ -137,6 +208,10 @@ def train_one(cfg: dict):
         seq_len=loaders["seq_len"],
         cfg=cfg.get("model_cfg", {}),
     ).to(device)
+    scaler_metadata = {
+        "mean": loaders["scaler"].mean_.astype(float).tolist(),
+        "scale": loaders["scaler"].scale_.astype(float).tolist(),
+    }
     adapted_note = str(getattr(model, "adapted_note", ""))
     if adapted_note:
         print(f"[model] {adapted_note}")
@@ -252,6 +327,7 @@ def train_one(cfg: dict):
                 "num_classes": loaders["num_classes"],
                 "classes": loaders["classes"],
                 "feature_cols": loaders["feature_cols"],
+                "scaler": scaler_metadata,
                 "epoch": int(epoch),
                 "history": history,
                 "best": float(best),
@@ -350,6 +426,7 @@ def train_one(cfg: dict):
                     "num_classes": loaders["num_classes"],
                     "classes": loaders["classes"],
                     "feature_cols": loaders["feature_cols"],
+                    "scaler": scaler_metadata,
                     "attention_runtime": attention_runtime,
                 },
                 best_path,
@@ -377,9 +454,20 @@ def train_one(cfg: dict):
     if not best_path.exists():
         raise RuntimeError(f"No valid checkpoint was saved for {cfg['exp_name']}. Check history.csv for non-finite losses.")
     model.load_state_dict(_load_state_dict(best_path, device))
+    reject_threshold = None
+    if bool(cfg.get("calibrate_reject_threshold", True)):
+        reject_threshold = calibrate_reject_threshold(
+            model,
+            loaders["val"],
+            device,
+            use_amp,
+            loaders.get("unknown_index"),
+            float(cfg.get("reject_threshold_quantile", 0.95)),
+        )
     test_metrics, y_true, y_pred = eval_model(
         model, loaders["test"], device, amp=use_amp,
         unknown_index=loaders.get("unknown_index"), classes=loaders.get("classes"),
+        reject_threshold=reject_threshold,
     )
     report = classification_report(
         y_true,
@@ -414,6 +502,8 @@ def train_one(cfg: dict):
         "stop_reason": stop_reason,
         "best_val_metric": float(best),
         "early_stop_metric": early_metric,
+        "train_unknown": bool(cfg.get("train_unknown", True)),
+        "reject_threshold": reject_threshold,
         "attention_backend_requested": attention_runtime["requested_backend"],
         "attention_backend_actual": "|".join(attention_runtime["actual_backends"]),
         "flash_attention_enforced": attention_runtime["flash_attention_enforced"],
@@ -433,6 +523,8 @@ def train_one(cfg: dict):
             "config": cfg,
             "scheduler": scheduler_info,
             "attention_runtime": attention_runtime,
+            "reject_threshold": reject_threshold,
+            "scaler": scaler_metadata,
         },
         output_dir / "metrics.json",
     )
