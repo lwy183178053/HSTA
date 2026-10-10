@@ -34,7 +34,7 @@
 
 ## 消融与效率
 
-HSTA-CM-DFT 的关键组件消融是 no-DFT 与完整 DFT 主模型的对照。现有 `hsta_cm_ablation_s.yaml` 另提供时域 HSTA-CM 的 no-conv、no-Mamba 和 no-attention 检查；这些结果需标注为时域结构消融，不得写成 DFT 主模型的直接组件消融。所有消融保持张量宽度和训练协议一致，仍使用显式 `unknown` 训练。
+HSTA-CM-DFT 的池化结构组件消融是 no-DFT 与 pooled DFT 的对照，两者保持 30 个注意力 Token 和参数规模一致。当前 Token 主配置另有 46 个注意力 Token，正式主结果采用它时必须补一个 30 个原始时序 Token 的 raw-token 控制；现有 no-DFT 数字不能直接作为 Token 主模型的单因素消融。`hsta_cm_ablation_s.yaml` 另提供时域 HSTA-CM 的 no-conv、no-Mamba 和 no-attention 检查；这些结果需标注为时域结构消融，不得写成 DFT 主模型的直接组件消融。所有消融保持张量宽度和训练协议一致，仍使用显式 `unknown` 训练。
 
 效率实验只测 batch size `1、8、32`，报告参数量、MACs/FLOPs、延迟、吞吐量和 CUDA 峰值显存，不计入数据加载时间。
 

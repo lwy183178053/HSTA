@@ -24,7 +24,7 @@ HSTA-CM-DFT-closed 和五个对比模型没有 `unknown` 输出，也不使用�
 
 ## HSTA-CM-no-DFT 消融
 
-no-DFT 版本保留 Mamba、FlashAttention、融合层和分类头，仅将频域卷积分支替换为同宽、同深度、同样逐层残差的原始时域 `Conv1d` 分支。它使用相同的数据、训练预算和 unknown 协议，用于隔离 DFT 对结果的贡献。
+no-DFT 版本保留 Mamba、FlashAttention、融合层和分类头，仅将频域卷积分支替换为同宽、同深度、同样逐层残差的原始时域 `Conv1d` 分支。它与 `pooled` DFT 版本使用相同的 30 个注意力 Token 和约 665K 参数，因此是池化结构下隔离 DFT 的直接对照。当前 Token 主配置使用 46 个 Token、约 618K 参数；在正式论文中若采用该配置，必须另加一个 30 个原始时序 Token 的 raw-token 控制，不能直接把现有 no-DFT 数字解释为 Token 主模型的单因素 DFT 消融。
 
 ## DFT 表示与筛选结论
 
