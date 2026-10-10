@@ -23,11 +23,13 @@ def test_hsta_cm_dft_registry_and_frequency_layout():
         cfg={"dim": 32, "heads": 4, "dropout": 0.0},
     )
     assert isinstance(model, HSTACMDFT)
-    conv_layers = [module for module in model.frequency if isinstance(module, torch.nn.Conv2d)]
+    conv_layers = [module for module in model.frequency if isinstance(module, torch.nn.Conv1d)]
     assert len(conv_layers) == 3
-    assert all(module.kernel_size == (1, 3) for module in conv_layers)
-    assert model.frequency_residual.kernel_size == (1, 1)
-    assert conv_layers[0].in_channels == 2
+    assert all(module.kernel_size == (3,) for module in conv_layers)
+    assert model.frequency_residual.kernel_size == (1,)
+    assert model.frequency_residual.in_channels == 3
+    assert conv_layers[0].in_channels == 3
+    assert not any(isinstance(module, torch.nn.Conv2d) for module in model.modules())
 
     frequency = model._frequency_features(torch.randn(2, 30, 3))
     assert frequency.shape == (2, 32)

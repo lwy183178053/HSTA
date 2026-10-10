@@ -1,11 +1,11 @@
-"""HSTA-CM-DFT: temporal Mamba plus a frequency-domain Conv2d branch.
+"""HSTA-CM-DFT: temporal Mamba plus a frequency-domain Conv1d branch.
 
 The input remains a packet sequence ``[batch, sequence, feature]``.  The
-frequency branch applies a one-sided real FFT along the packet axis, keeps
-real and imaginary parts as two Conv2d channels, and pools its learned
-frequency representation to a vector.  That vector is broadcast over packet
-positions before the same gated fusion and FlashAttention head used by
-HSTA-CM.
+frequency branch applies a one-sided real FFT along the packet axis, keeps the
+magnitude for each original feature channel, and models adjacent frequency
+bins with ordinary PyTorch ``Conv1d`` layers.  The learned frequency vector is
+then fused with the temporal branch before the same FlashAttention head used
+by ``HSTA-CM``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from .mamba_model import MambaBlock
 
 
 class HSTACMDFT(nn.Module):
-    """Open-set classifier with a DFT/Conv2d frequency encoder.
+    """Open-set classifier with a DFT/Conv1d frequency encoder.
 
     ``HSTACMDFT`` is a separate model variant.  The original ``HSTACM``
     implementation is intentionally unchanged so the main benchmark remains
@@ -27,7 +27,7 @@ class HSTACMDFT(nn.Module):
 
     layout = (
         "rfft_frequency_encoding",
-        "conv2d_x3_frequency_residual_kernel_1x3",
+        "magnitude_conv1d_x3_frequency_residual_kernel_3",
         "mamba_x2_residual",
         "fusion_fc",
         "flash_attention",
@@ -68,23 +68,23 @@ class HSTACMDFT(nn.Module):
         self.use_attention = bool(use_attention)
         self.use_position = bool(use_position)
 
-        # Real and imaginary FFT parts are two input channels.  Three residual
-        # (1, 3) convolutions model adjacent frequencies while keeping feature
-        # rows independent until the learned global pooling step.
+        # The FFT magnitude keeps the three original packet feature channels;
+        # no real/imaginary or amplitude/phase channel expansion is used.
+        # Three Conv1d layers model adjacent frequency bins with kernel 3.
         self.frequency = nn.Sequential(
-            nn.Conv2d(2, dim, kernel_size=(1, 3), padding=(0, 1)),
-            nn.BatchNorm2d(dim),
+            nn.Conv1d(input_dim, dim, kernel_size=3, padding=1),
+            nn.BatchNorm1d(dim),
             nn.GELU(),
-            nn.Dropout2d(dropout),
-            nn.Conv2d(dim, dim, kernel_size=(1, 3), padding=(0, 1)),
-            nn.BatchNorm2d(dim),
+            nn.Dropout1d(dropout),
+            nn.Conv1d(dim, dim, kernel_size=3, padding=1),
+            nn.BatchNorm1d(dim),
             nn.GELU(),
-            nn.Dropout2d(dropout),
-            nn.Conv2d(dim, dim, kernel_size=(1, 3), padding=(0, 1)),
+            nn.Dropout1d(dropout),
+            nn.Conv1d(dim, dim, kernel_size=3, padding=1),
             nn.GELU(),
         )
-        self.frequency_residual = nn.Conv2d(2, dim, kernel_size=1)
-        self.frequency_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.frequency_residual = nn.Conv1d(input_dim, dim, kernel_size=1)
+        self.frequency_pool = nn.AdaptiveAvgPool1d(1)
 
         self.temporal_embed = nn.Linear(input_dim, dim)
         self.temporal = nn.ModuleList(
@@ -120,14 +120,14 @@ class HSTACMDFT(nn.Module):
     def _frequency_features(self, x: torch.Tensor) -> torch.Tensor:
         """Return one learned frequency vector per flow, shaped ``[B, D]``."""
 
-        # rFFT of a real sequence contains N//2 + 1 non-redundant bins.  The
-        # feature axis is moved next to the complex channel before splitting
-        # real/imaginary parts into the Conv2d input layout [B, 2, C, F].
+        # rFFT of a real sequence contains N//2 + 1 non-redundant bins.  Move
+        # the original feature axis to Conv1d's channel dimension and retain
+        # only the magnitude, so the representation stays [B, 3, F].
         # CUDA half-precision FFT kernels require power-of-two lengths.  The
         # 30-packet input is therefore transformed in FP32 and cast back
-        # before the convolution branch (autocast still handles Conv2d).
+        # before the convolution branch.
         spectrum = torch.fft.rfft(x.float(), dim=1, norm="ortho").permute(0, 2, 1)
-        frequency_input = torch.stack((spectrum.real, spectrum.imag), dim=1).to(dtype=x.dtype)
+        frequency_input = spectrum.abs().to(dtype=x.dtype)
         encoded = self.frequency(frequency_input) + self.frequency_residual(frequency_input)
         return self.frequency_pool(encoded).flatten(1)
 
