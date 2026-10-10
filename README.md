@@ -1,6 +1,6 @@
 # HSTA-CM: Encrypted Traffic Classification
 
-This repository contains the compact open-set experiment code for HSTA-CM on CESNET-TLS22 and CESNET-QUIC22. Every flow is represented by its first 30 packets and three observable features: packet size, direction, and inter-arrival time.
+This repository contains the open-set experiment code for HSTA-CM on CESNET-TLS22 and CESNET-QUIC22. Every flow is represented by its first 30 packets and three observable features: packet size, direction, and inter-arrival time. In this repository, “compact” describes the reduced experiment/data-sampling scope only; it does not describe a reduced-parameter model.
 
 HSTA-CM uses native `Conv1d` for packet-position structure, the current `mamba_ssm` package for temporal modeling, gated fusion, and PyTorch FlashAttention. The model predicts 100 known applications plus `unknown`. Held-out applications and seeded synthetic noise are mapped to `unknown`; train, validation, and test are date-disjoint.
 
@@ -49,6 +49,6 @@ python scripts/sample_temporal_dataset.py --input-csv data/processed/datazoo_tls
 bash scripts/run_wsl_experiments.sh quick_tls
 ```
 
-The subset profiles use per-class caps of train/validation/test `100/20/20` (`tiny`), `500/100/100` (`small`), and `1000/200/200` (`medium`). The split labels retain the DataZoo temporal windows: earlier days for training, the following validation window, and the later week for testing.
+The subset profiles use per-class caps of train/validation/test `100/20/20` (`tiny`), `500/100/100` (`small`), and `1000/200/200` (`medium`). These profiles change only how many flows are sampled; they do not change the model architecture, hidden widths, layer counts, or parameter count. The split labels retain the DataZoo temporal windows: earlier days for training, the following validation window, and the later week for testing.
 
 The compact matrix reports macro-F1, known accuracy, unknown recall/precision/F1, known-to-unknown false acceptance rate, parameter count, and runtime. `scripts/summarize_compact_results.py` aggregates completed runs.
