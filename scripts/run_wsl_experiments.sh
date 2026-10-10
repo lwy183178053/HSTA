@@ -53,8 +53,14 @@ case "$MODE" in
   efficiency)
     python benchmark_efficiency.py --output-dir results/efficiency_benchmark
     ;;
+  small60)
+    # 60 known classes + unknown, 256-dimensional HSTA-CM screening run.
+    python run_experiments.py \
+      --config configs/compact_s_60_dim256.yaml \
+      --resume
+    ;;
   *)
-    echo "Usage: $0 {main|main_all|compact_s|small_tls|small_quic|ablation|efficiency}" >&2
+    echo "Usage: $0 {main|main_all|compact_s|small_tls|small_quic|small60|ablation|efficiency}" >&2
     exit 2
     ;;
 esac
