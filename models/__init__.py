@@ -51,6 +51,7 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             frequency_representation=str(cfg.get("frequency_representation", "magnitude")),
             fusion_mode=str(cfg.get("fusion_mode", "pooled")),
             use_raw_conv=bool(cfg.get("use_raw_conv", False)),
+            frequency_token_scale=_float(cfg, "frequency_token_scale", 1.0),
         )
     if model in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
         return PktTCNetAdapted(

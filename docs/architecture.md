@@ -4,9 +4,9 @@
 
 输入是每条流前 30 个数据包的 `[B, 30, 3]` 张量，3 个特征为包大小、方向和到达间隔。30 是 CESNET-TLS22/QUIC22 的 PPI 协议长度，不代表可以任意扩展或截断的数据集变体。
 
-1. **频域卷积分支**：沿 30 个数据包位置执行 `torch.fft.rfft`，紧凑主配置保留每个原始特征通道的实部和虚部，再用三层 PyTorch `Conv1d`（核大小为 3）提取相邻频率点模式。每层卷积都使用残差连接，并保留输入投影残差。幅值表示仍保留为参数匹配的筛选变体。
+1. **频域卷积分支**：沿 30 个数据包位置执行 `torch.fft.rfft`，紧凑主配置保留每个原始特征通道的 `log1p` 频谱幅值，再用三层 PyTorch `Conv1d`（核大小为 3）提取相邻频率点模式。每层卷积都使用残差连接，并保留输入投影残差。实虚部表示仍保留为筛选变体。
 2. **时序分支**：两层当前 `mamba_ssm` Mamba 直接建模原始数据包顺序依赖，并加入时序嵌入残差。
-3. **融合**：紧凑主配置使用 `fusion_mode: tokens`，保留全部 16 个非冗余频点作为频域 Token，与 30 个时序 Token 拼接后交给 FlashAttention；`pooling: temporal_mean` 只汇聚时序 Token，频域 Token 仍作为注意力上下文。`pooled` 是不保留频点局部结构的直接对照。两种融合序列都加入可学习的位置编码和分支类型编码。
+3. **融合**：紧凑主配置使用 `fusion_mode: tokens`，保留全部 16 个非冗余频点作为频域 Token，并加入三层原始时域 `Conv1d` 分支；30 个 Mamba Token、30 个原始卷积 Token 和 16 个频域 Token 拼接后交给 FlashAttention，再做全 Token 平均汇聚。`pooled` 和无原始卷积分支是直接筛选对照。Token 模式可用 `frequency_token_scale` 学习频域分支权重；TLS small 使用 1.0，QUIC small 使用 0.1。所有融合序列都加入可学习的位置编码和分支类型编码。
 4. **注意力**：使用一个 PyTorch `scaled_dot_product_attention` 的 Flash 后端。配置要求 FlashAttention；CPU、数学实现和 memory-efficient 回退会被拒绝。注意力消融直接跳过该模块。
 5. **输出**：LayerNorm、平均池化后接分类头。HSTA-CM-DFT-open 输出 100 个已知类别加 `unknown`（101 类）；HSTA-CM-DFT-closed 输出 100 个已知类别。
 

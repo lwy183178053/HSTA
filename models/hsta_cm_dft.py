@@ -51,6 +51,7 @@ class HSTACMDFT(nn.Module):
         frequency_representation: str = "magnitude",
         fusion_mode: str = "pooled",
         use_raw_conv: bool = False,
+        frequency_token_scale: float = 1.0,
     ):
         super().__init__()
         if input_dim <= 0 or num_classes <= 0:
@@ -59,12 +60,14 @@ class HSTACMDFT(nn.Module):
             raise ValueError("depth must be positive")
         if max_len < 3:
             raise ValueError("max_len must be at least 3 for the frequency kernel")
-        if pooling not in {"mean", "last", "temporal_mean"}:
-            raise ValueError("pooling must be mean, last or temporal_mean")
+        if pooling not in {"mean", "last", "temporal_mean", "cls"}:
+            raise ValueError("pooling must be mean, last, temporal_mean or cls")
         if frequency_representation not in {"magnitude", "real_imag"}:
             raise ValueError("frequency_representation must be magnitude or real_imag")
         if fusion_mode not in {"pooled", "tokens"}:
             raise ValueError("fusion_mode must be pooled or tokens")
+        if pooling == "cls" and fusion_mode != "tokens":
+            raise ValueError("pooling='cls' requires fusion_mode='tokens'")
         if use_raw_conv and fusion_mode != "tokens":
             raise ValueError("use_raw_conv requires fusion_mode='tokens'")
 
@@ -77,6 +80,9 @@ class HSTACMDFT(nn.Module):
         self.frequency_representation = str(frequency_representation)
         self.fusion_mode = str(fusion_mode)
         self.use_raw_conv = bool(use_raw_conv)
+        self.frequency_token_scale = float(frequency_token_scale)
+        if self.frequency_token_scale <= 0:
+            raise ValueError("frequency_token_scale must be positive")
         frequency_input_dim = input_dim if self.frequency_representation == "magnitude" else input_dim * 2
 
         # The FFT magnitude keeps the three original packet feature channels;
@@ -143,6 +149,8 @@ class HSTACMDFT(nn.Module):
             self.gate = None
         max_frequency_bins = self.max_len // 2 + 1
         token_capacity = self.max_len + max_frequency_bins + (self.max_len if self.use_raw_conv else 0)
+        if self.fusion_mode == "tokens" and self.pooling == "cls":
+            token_capacity += 1
         self.token_fusion = (
             nn.Sequential(nn.Linear(dim, dim), nn.GELU(), nn.Dropout(dropout))
             if self.fusion_mode == "tokens"
@@ -150,7 +158,19 @@ class HSTACMDFT(nn.Module):
         )
         stream_count = 3 if self.use_raw_conv else 2
         self.stream_type = nn.Parameter(torch.zeros(1, stream_count, dim)) if self.fusion_mode == "tokens" else None
+        self.cls_token = (
+            nn.Parameter(torch.zeros(1, 1, dim))
+            if self.fusion_mode == "tokens" and self.pooling == "cls"
+            else None
+        )
         self.position = nn.Parameter(torch.zeros(1, token_capacity if self.fusion_mode == "tokens" else self.max_len, dim))
+        # A learnable scale lets attention suppress a harmful spectral branch
+        # on a dataset where the global DFT is less informative than packets.
+        self.dft_scale = (
+            nn.Parameter(torch.tensor(self.frequency_token_scale))
+            if self.fusion_mode == "tokens"
+            else None
+        )
         layout = ["rfft_frequency_encoding", f"{self.frequency_representation}_conv1d_x3_residual_kernel_3"]
         if self.use_raw_conv:
             layout.append("raw_conv1d_x3_residual")
@@ -223,12 +243,14 @@ class HSTACMDFT(nn.Module):
 
         if self.fusion_mode == "tokens":
             temporal_tokens = temporal + self.stream_type[:, 0:1]
-            frequency_tokens = self._frequency_tokens(x) + self.stream_type[:, 1:2]
+            frequency_tokens = self._frequency_tokens(x) * self.dft_scale + self.stream_type[:, 1:2]
             streams = [temporal_tokens]
             if self.use_raw_conv:
                 streams.append(self._raw_tokens(x) + self.stream_type[:, 2:3])
             streams.append(frequency_tokens)
             fused = self.token_fusion(torch.cat(streams, dim=1))
+            if self.cls_token is not None:
+                fused = torch.cat((self.cls_token.expand(fused.shape[0], -1, -1), fused), dim=1)
             if self.use_position:
                 fused = fused + self.position[:, : fused.shape[1]]
         else:
@@ -242,7 +264,9 @@ class HSTACMDFT(nn.Module):
                 fused = fused + self.position[:, :seq_len]
         fused = self.attention(fused)
         fused = self.norm(fused)
-        if self.fusion_mode == "tokens" and self.pooling == "temporal_mean":
+        if self.fusion_mode == "tokens" and self.pooling == "cls":
+            pooled = fused[:, 0]
+        elif self.fusion_mode == "tokens" and self.pooling == "temporal_mean":
             # Frequency tokens remain in the attention context, while the
             # classifier reads the temporal stream only. This avoids giving
             # 16 frequency bins an arbitrary 16/46 share of the final mean.

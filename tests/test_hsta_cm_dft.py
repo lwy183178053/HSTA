@@ -67,3 +67,23 @@ def test_hsta_cm_dft_temporal_mean_pooling_keeps_frequency_tokens_in_context():
     assert model.pooling == "temporal_mean"
     assert model.fusion_mode == "tokens"
     assert model.position.shape[1] == 46
+
+
+@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
+def test_hsta_cm_dft_cls_pooling_prepends_one_context_token():
+    model = build_model(
+        "hsta-cm-dft",
+        input_dim=3,
+        num_classes=101,
+        seq_len=30,
+        cfg={
+            "dim": 32,
+            "heads": 4,
+            "dropout": 0.0,
+            "fusion_mode": "tokens",
+            "use_raw_conv": True,
+            "pooling": "cls",
+        },
+    )
+    assert model.cls_token.shape == (1, 1, 32)
+    assert model.position.shape[1] == 77
