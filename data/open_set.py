@@ -115,7 +115,12 @@ def open_set_metrics(
         else:
             unknown_scores = 1.0 - np.max(probs, axis=1)
         if reject_threshold is not None:
-            y_pred = np.argmax(probs, axis=1).astype(np.int64)
+            # Below the calibrated threshold choose a known class, even if
+            # the explicit unknown neuron happened to win raw argmax.
+            known_probs = probs.copy()
+            if unknown_index < known_probs.shape[1]:
+                known_probs[:, unknown_index] = -1.0
+            y_pred = np.argmax(known_probs, axis=1).astype(np.int64)
             y_pred[unknown_scores >= float(reject_threshold)] = unknown_index
 
     known_true = ~unknown_true
@@ -149,7 +154,8 @@ def open_set_metrics(
     else:
         known_precision = known_recall = known_f1 = float("nan")
     open_set_macro_f1 = (
-        float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        float(f1_score(y_true, y_pred, labels=np.arange(len(classes)) if classes else None,
+                       average="macro", zero_division=0))
         if y_true.size
         else float("nan")
     )

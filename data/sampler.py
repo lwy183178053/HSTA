@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -29,10 +30,39 @@ def _project_path(path: str | Path, project_root: str | Path) -> str:
 
 
 def _imports():
-    from cesnet_datazoo.config import AppSelection, DatasetConfig, ValidationApproach
+    from cesnet_datazoo.config import AppSelection, DatasetConfig, ValidationApproach, DataLoaderOrder
     from cesnet_datazoo.datasets import CESNET_QUIC22, CESNET_TLS22
 
-    return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach
+    return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach, DataLoaderOrder
+
+
+def global_training_top_apps(dataset_name: str, project_root: str | Path, size: str,
+                             dates: list[str], topk: int = 60) -> tuple[list[str], list[str], dict[str, int]]:
+    """Count APP IDs directly in the H5 training tables and select global top-k."""
+    import tables
+    CESNET_TLS22, CESNET_QUIC22, _, _, _, _ = _imports()
+    cls = CESNET_TLS22 if dataset_name == "tls" else CESNET_QUIC22
+    root = Path(project_root).resolve() / "data" / "raw" / (
+        "cesnet_tls22_datazoo" if dataset_name == "tls" else "cesnet_quic22_datazoo"
+    ) / size.upper()
+    base_name = cls.database_filename
+    stem, suffix = os.path.splitext(base_name)
+    h5_path = root / f"{stem}-{size.upper()}{suffix}"
+    enum = {int(k): str(v) for k, v in cls._tables_app_enum.items()}
+    counts: Counter[str] = Counter()
+    with tables.open_file(str(h5_path), mode="r") as database:
+        for date in dates:
+            table = database.get_node(f"/flows/D{date}")
+            values = np.asarray(table.col("APP"), dtype=np.int64)
+            for app_id, count in zip(*np.unique(values, return_counts=True)):
+                name = enum.get(int(app_id), str(app_id))
+                if not str(name).endswith("-background"):
+                    counts[name] += int(count)
+    ordered = [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+    known = ordered[:int(topk)]
+    all_apps = [name for name in enum.values() if not name.endswith("-background")]
+    unknown = sorted(set(all_apps) - set(known))
+    return known, unknown, dict(counts)
 
 
 # The dates are disjoint and ordered.  The first complete week is used for
@@ -46,9 +76,9 @@ TEMPORAL_DATE_SPLITS = {
         "test": ["20211012", "20211013", "20211014", "20211015", "20211016", "20211017"],
     },
     "quic": {
-        "train": ["20221031", "20221101", "20221102", "20221103", "20221104", "20221105", "20221106"],
-        "val": ["20221107"],
-        "test": ["20221108", "20221109", "20221110", "20221111", "20221112", "20221113"],
+        "train": [f"202210{day:02d}" for day in range(31, 32)] + [f"202211{day:02d}" for day in range(1, 14)],
+        "val": ["20221114", "20221115"],
+        "test": [f"202211{day:02d}" for day in range(16, 28)],
     },
 }
 UNKNOWN_LABEL = "unknown"
@@ -479,12 +509,12 @@ def build_dataset(
     batch_size: int = 64,
     test_batch_size: int = 64,
     workers: int = 0,
-    known_topk: int | None = 40,
+    known_topk: int | None = 60,
     unknown_count: int | None = None,
     unknown_split_seed: int = 599,
     temporal_split: bool = True,
 ):
-    CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach = _imports()
+    CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach, DataLoaderOrder = _imports()
     root = Path(project_root).resolve()
     size = size.upper()
     if name == "tls":
@@ -538,6 +568,7 @@ def build_dataset(
             # deterministic for the formal protocol.
             random_state=599,
             train_dataloader_seed=599,
+            train_dataloader_order=DataLoaderOrder.SEQUENTIAL,
             # Keep application names in the batch labels.  Folding to the
             # DataZoo unknown index here would make identity-level isolation
             # impossible to audit during CSV export.
@@ -550,12 +581,30 @@ def build_dataset(
             common.pop("test_dates")
         return DatasetConfig(**common)
 
-    # First let DataZoo rank applications by actual training frequency.  The
-    # complete complement of the top-k known classes is retained as the
-    # candidate unknown pool.  ``unknown_count`` is an optional debugging cap
-    # only; the default and formal protocol use every candidate application.
+    # Select a true global top-k from all training-date H5 rows. DataZoo's
+    # TOPX_KNOWN applies provider-group expansion, so it is not used here.
     selection_ranking: list[dict] = []
-    if known_topk and unknown_count is not None:
+    if known_topk:
+        global_known, global_unknown, global_counts = global_training_top_apps(
+            name, root, size, train_dates, int(known_topk)
+        )
+        selection_ranking = [{"application": app, "count": global_counts.get(app, 0)}
+                             for app in global_known]
+        known_apps = global_known
+        all_unknown_apps = global_unknown
+        unknown_apps = all_unknown_apps if unknown_count is None else all_unknown_apps[:int(unknown_count)]
+        unknown_groups = partition_unknown_apps(unknown_apps, seed=unknown_split_seed)
+        train_support_apps = list(unknown_groups["unknown_support"])
+        eval_unknown_apps = [app for group in ("unknown_val_heldout", "unknown_test_heldout") for app in unknown_groups[group]]
+        dataset = dataset_cls(str(dataset_root), size=size)
+        cfg = config_for(dataset, AppSelection.FIXED,
+                         apps_selection_fixed_known=known_apps + train_support_apps,
+                         apps_selection_fixed_unknown=eval_unknown_apps)
+        candidate_pool_complete = unknown_count is None
+        dataset._hsta_global_topk = True
+        dataset._hsta_selection_ranking = selection_ranking
+        dataset._hsta_global_counts = global_counts
+    elif unknown_count is not None:
         probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
         dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
         known_apps = [str(x) for x in dataset.class_info.known_apps]
@@ -583,27 +632,6 @@ def build_dataset(
             apps_selection_fixed_unknown=eval_unknown_apps,
         )
         candidate_pool_complete = False
-    elif known_topk:
-        probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
-        dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
-        known_apps = [str(x) for x in dataset.class_info.known_apps]
-        all_unknown_apps = [str(x) for x in dataset.class_info.unknown_apps]
-        selection_ranking = _selection_ranking(dataset, known_apps)
-        unknown_apps = list(all_unknown_apps)
-        unknown_groups = partition_unknown_apps(unknown_apps, seed=unknown_split_seed)
-        train_support_apps = list(unknown_groups["unknown_support"])
-        eval_unknown_apps = [
-            app for group in ("unknown_val_heldout", "unknown_test_heldout")
-            for app in unknown_groups[group]
-        ]
-        dataset = dataset_cls(str(dataset_root), size=size)
-        cfg = config_for(
-            dataset,
-            AppSelection.FIXED,
-            apps_selection_fixed_known=known_apps + train_support_apps,
-            apps_selection_fixed_unknown=eval_unknown_apps,
-        )
-        candidate_pool_complete = True
     else:
         cfg = config_for(dataset, AppSelection.ALL_KNOWN)
         known_apps = []
@@ -614,6 +642,8 @@ def build_dataset(
     # configuration hash still isolates any existing generated cache.
     dataset.set_dataset_config_and_initialize(cfg, disable_indices_cache=True)
     _include_validation_unknowns(dataset)
+    # The validation repair replaces val.indices, so shuffle only afterwards.
+    permute_split_indices(dataset, seed=599)
     # Keep the audit information attached to the object so export code does
     # not have to infer identities from the folded model labels.
     dataset._hsta_known_apps = list(known_apps or getattr(dataset.class_info, "known_apps", []))
@@ -622,6 +652,8 @@ def build_dataset(
     dataset._hsta_unknown_source_map = unknown_application_source_map(unknown_groups)
     dataset._hsta_unknown_pool_complete = bool(candidate_pool_complete)
     dataset._hsta_selection_ranking = selection_ranking
+    dataset._hsta_source_records = {split: source_records_for_dataset(dataset, split) for split in SPLITS}
+    dataset._hsta_source_cursor = {split: 0 for split in SPLITS}
     return dataset, dataset_root
 
 
@@ -665,6 +697,42 @@ def get_loader(dataset, split: str):
     if split == "test":
         return dataset.get_test_dataloader()
     raise ValueError(split)
+
+
+class _SourceRecords:
+    def __init__(self, subset):
+        self.subset = subset
+        self.paths = list(getattr(subset, "tables_paths", []))
+    def __len__(self):
+        return len(self.subset.indices)
+    def __getitem__(self, index):
+        item = self.subset.indices[index]
+        names = item.dtype.names if hasattr(item, "dtype") else None
+        table_id = int(item["TABLE"] if names else item[0])
+        row_id = int(item["INDEX"] if names else item[1])
+        table_path = self.paths[table_id]
+        date = str(table_path).split("/flows/D")[-1]
+        return date, f"{table_path}::row_{row_id}"
+
+
+def source_records_for_dataset(dataset, split: str):
+    """Map sequential DataZoo indices to real H5 date-table and row IDs."""
+    subset = getattr(dataset, f"{split}_dataset", None)
+    if subset is None or not hasattr(subset, "indices"):
+        return []
+    return _SourceRecords(subset)
+
+
+def permute_split_indices(dataset, seed: int = 599) -> None:
+    """Shuffle each split once while preserving ordinal source-ID mapping."""
+    for offset, split in enumerate(SPLITS):
+        subset = getattr(dataset, f"{split}_dataset", None)
+        if subset is None or not hasattr(subset, "indices") or len(subset.indices) < 2:
+            continue
+        rng = np.random.default_rng(int(seed) + offset)
+        subset.indices = subset.indices[rng.permutation(len(subset.indices))]
+        if hasattr(dataset, f"{split}_dataloader"):
+            setattr(dataset, f"{split}_dataloader", None)
 
 
 def iter_batch(batch):
@@ -760,6 +828,7 @@ def export_csv(
             fieldnames=[
                 "flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source",
                 "original_app", "source_group", "noise_family",
+                "capture_date", "source_flow_id",
             ],
         )
         writer.writeheader()
@@ -768,6 +837,17 @@ def export_csv(
             flow_index = 0
             for batch_index, batch in enumerate(tqdm(get_loader(dataset, split), desc=f"export {split}")):
                 for ppi_one, label_raw in iter_batch(batch):
+                    source_records = getattr(dataset, "_hsta_source_records", {}).get(split, [])
+                    cursor = getattr(dataset, "_hsta_source_cursor", {}).get(split, 0)
+                    data_name = str(getattr(dataset, "name", "datazoo")).lower()
+                    date_key = "quic" if "quic" in data_name else "tls"
+                    if cursor < len(source_records):
+                        capture_date, source_flow_id = source_records[cursor]
+                    else:
+                        capture_date = ""
+                        source_flow_id = ""
+                    if hasattr(dataset, "_hsta_source_cursor"):
+                        dataset._hsta_source_cursor[split] = cursor + 1
                     original_app = decode_label(label_raw, dataset)
                     source_group = "known"
                     if original_app in source_map:
@@ -802,6 +882,14 @@ def export_csv(
                     if len(sizes) == 0:
                         continue
                     flow_id = f"{split}_{flow_index}"
+                    # In-memory DataZoo batches expose the source row only via
+                    # indices. Keep a deterministic fallback until direct
+                    # index metadata is attached by the dataset adapter.
+                    if not source_flow_id and not hasattr(dataset, "_hsta_source_records"):
+                        source_flow_id = f"test_fixture::{split}::{flow_index}"
+                        capture_date = ""
+                    if not source_flow_id:
+                        raise RuntimeError(f"missing real H5 source index for {split} ordinal {cursor}")
                     flow_index += 1
                     split_counts[split][label] += 1
                     source_counts[split][source_key] += 1
@@ -819,6 +907,8 @@ def export_csv(
                                 "original_app": original_app,
                                 "source_group": source_group,
                                 "noise_family": "",
+                                "capture_date": capture_date,
+                                "source_flow_id": source_flow_id,
                             }
                         )
                         packet_rows += 1
@@ -852,7 +942,7 @@ def append_synthetic_unknown(
     csv_path: str | Path,
     seq_len: int = PPI_LEN,
     noise_per_split: dict[str, int] | None = None,
-    noise_ratio: float = 0.05,
+    noise_ratio: float = 0.10,
     seed: int = 599,
     noise_families: dict[str, str] | None = None,
 ) -> dict[str, int]:
@@ -962,6 +1052,8 @@ def append_synthetic_unknown(
                             "original_app": f"synthetic_noise::{family}",
                             "source_group": f"noise_{split}",
                             "noise_family": family,
+                            "capture_date": "",
+                            "source_flow_id": f"synthetic::{split}::{family}::{flow_index}",
                         }
                     )
     append_synthetic_unknown.last_metadata = {
@@ -973,18 +1065,116 @@ def append_synthetic_unknown(
     return counts
 
 
+def limit_real_unknown_ratio(csv_path: str | Path, ratio: float = 0.30, seed: int = 599) -> dict:
+    """Reduce real unknown flows to a per-split budget using source balancing.
+
+    The DataZoo export must scan all complement applications to build an
+    auditable candidate list. This second streaming pass keeps only the
+    requested fraction and never duplicates or mixes application identities.
+    """
+    path = Path(csv_path)
+    known_counts = Counter()
+    app_counts: dict[str, Counter] = {s: Counter() for s in SPLITS}
+    with path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        fields = list(reader.fieldnames or [])
+        for row in reader:
+            split = str(row.get("split", "")).lower()
+            if split not in SPLITS:
+                continue
+            if row.get("pkt_index") == "0":
+                label = str(row.get("label", "")).lower()
+                if label != UNKNOWN_LABEL:
+                    known_counts[split] += 1
+                else:
+                    app_counts[split][str(row.get("original_app", ""))] += 1
+    budgets = {s: int(round(known_counts[s] * float(ratio))) for s in SPLITS}
+    keep: dict[str, set[str]] = {s: set() for s in SPLITS}
+    for split in SPLITS:
+        apps = sorted(app_counts[split])
+        rng_split = np.random.default_rng(seed + sum(ord(c) for c in split))
+        rng_split.shuffle(apps)
+        selected = {app: 0 for app in apps}
+        selected_total = 0
+        # The first pass gives each source one flow, then fills round-robin.
+        while selected_total < budgets[split] and apps:
+            progressed = False
+            for app in apps:
+                if selected[app] < app_counts[split][app]:
+                    selected[app] += 1
+                    selected_total += 1
+                    progressed = True
+                    if selected_total >= budgets[split]:
+                        break
+            if not progressed:
+                break
+        unknown_seen: dict[str, int] = Counter()
+        seen_flow: set[str] = set()
+        reservoirs: dict[str, list[str]] = {app: [] for app in apps}
+        with path.open("r", newline="", encoding="utf-8-sig") as handle:
+            for row in csv.DictReader(handle):
+                if str(row.get("split", "")).lower() != split or str(row.get("label", "")).lower() != UNKNOWN_LABEL:
+                    continue
+                app = str(row.get("original_app", ""))
+                flow_id = str(row.get("flow_id", ""))
+                if flow_id not in seen_flow:
+                    seen_flow.add(flow_id)
+                    index = unknown_seen[app]
+                    unknown_seen[app] += 1
+                    quota = selected.get(app, 0)
+                    if quota <= 0:
+                        continue
+                    reservoir = reservoirs[app]
+                    if len(reservoir) < quota:
+                        reservoir.append(flow_id)
+                    else:
+                        replacement = int(rng_split.integers(0, index + 1))
+                        if replacement < quota:
+                            reservoir[replacement] = flow_id
+        for reservoir in reservoirs.values():
+            keep[split].update(reservoir)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    with path.open("r", newline="", encoding="utf-8-sig") as src, temp.open("w", newline="", encoding="utf-8") as dst:
+        reader = csv.DictReader(src)
+        writer = csv.DictWriter(dst, fieldnames=fields)
+        writer.writeheader()
+        for row in reader:
+            if str(row.get("label", "")).lower() == UNKNOWN_LABEL and str(row.get("flow_id", "")) not in keep.get(str(row.get("split", "")).lower(), set()):
+                continue
+            writer.writerow(row)
+    os.replace(temp, path)
+    return {"requested_by_split": budgets, "actual_by_split": {s: len(keep[s]) for s in SPLITS},
+            "available_by_split": {s: int(sum(app_counts[s].values())) for s in SPLITS}}
+
+
+def _rescan_counts(csv_path: str | Path, classes: list[str]):
+    counts = {s: Counter() for s in SPLITS}
+    packet_counts = {s: Counter() for s in SPLITS}
+    total = 0
+    with Path(csv_path).open("r", newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            split, label = str(row.get("split", "")).lower(), str(row.get("label", ""))
+            if split not in SPLITS:
+                continue
+            if str(row.get("pkt_index", "")) == "0":
+                counts[split][label] += 1
+            packet_counts[split][label] += 1
+            total += 1
+    return counts, total, packet_counts
+
+
 def export_datazoo_open_set(
     dataset_name: str,
     size: str,
     project_root: str | Path,
     out_csv: str | Path | None = None,
     seq_len: int = PPI_LEN,
-    topk: int = 40,
+    topk: int = 60,
     classes: list[str] | None = None,
     scan_batches: int = 300,
-    max_train_per_class: int | None = 20000,
-    max_val_per_class: int | None = 20000,
-    max_test_per_class: int | None = 20000,
+    max_train_per_class: int | None = 10000,
+    max_val_per_class: int | None = 2000,
+    max_test_per_class: int | None = 2000,
     init_train_size: int | str = "all",
     init_val_size: int | str = "all",
     init_test_size: int | str = "all",
@@ -993,8 +1183,9 @@ def export_datazoo_open_set(
     datazoo_workers: int = 0,
     unknown_count: int | None = None,
     unknown_split_seed: int = 599,
-    noise_ratio: float = 0.05,
+    noise_ratio: float = 0.10,
     noise_seed: int = 599,
+    unknown_ratio: float = 0.30,
     temporal_split: bool = True,
     max_export_batches: int | None = None,
 ):
@@ -1044,6 +1235,8 @@ def export_datazoo_open_set(
         unknown_source_groups=unknown_groups,
         max_batches_per_split=max_export_batches,
     )
+    real_unknown = limit_real_unknown_ratio(out_csv, ratio=unknown_ratio, seed=unknown_split_seed)
+    counts, packet_rows, packet_row_counts = _rescan_counts(out_csv, classes)
     noise_counts = append_synthetic_unknown(
         out_csv,
         seq_len=seq_len,
@@ -1075,11 +1268,8 @@ def export_datazoo_open_set(
         "unknown_label": UNKNOWN_LABEL if unknown_pool else "",
         "known_apps": [str(x) for x in getattr(dataset, "_hsta_known_apps", classes)],
         "known_app_selection": {
-            "method": (
-                "DataZoo TOPX_KNOWN: training-frequency descending with provider-group constraint"
-                if topk
-                else "DataZoo ALL_KNOWN"
-            ),
+            "method": ("H5 global training-window APP frequency descending" if topk else "DataZoo ALL_KNOWN"),
+            "background_apps_excluded": True,
             "requested_topk": int(topk),
             "selected_count": int(len(classes)),
             "ranking": getattr(dataset, "_hsta_selection_ranking", []),
@@ -1087,9 +1277,20 @@ def export_datazoo_open_set(
         "unknown_apps": unknown_pool,
         "unknown_candidate_pool": unknown_pool,
         "unknown_candidate_pool_complete": bool(getattr(dataset, "_hsta_unknown_pool_complete", False)),
+        "unknown_candidate_flow_count_by_split": {
+            split: int(sum(source_counts[split].values()) - sum(counts[split].get(label, 0) for label in classes))
+            for split in SPLITS
+        },
         "unknown_application_groups": unknown_groups,
         "unknown_split_seed": int(unknown_split_seed),
         "synthetic_noise_flows_by_split": noise_counts,
+        "real_unknown_requested_by_split": real_unknown["requested_by_split"],
+        "real_unknown_actual_by_split": real_unknown["actual_by_split"],
+        "real_unknown_available_by_split": real_unknown["available_by_split"],
+        "real_unknown_actual_ratio_by_split": {
+            split: (real_unknown["actual_by_split"][split] /
+                    max(sum(counts[split].get(label, 0) for label in classes), 1)) for split in SPLITS
+        },
         "synthetic_noise": getattr(append_synthetic_unknown, "last_metadata", {}),
         "temporal_split": bool(temporal_split),
         # Keep the exact date lists in every export report so a sampled CSV
@@ -1124,7 +1325,30 @@ def export_datazoo_open_set(
         "datazoo_workers": datazoo_workers,
         "unknown_count": None if unknown_count is None else int(unknown_count),
         "noise_ratio": float(noise_ratio),
+        "unknown_ratio": float(unknown_ratio),
+        "random_seeds": {"dataset": 599, "unknown_split": int(unknown_split_seed), "noise": int(noise_seed)},
+        "global_topk": bool(getattr(dataset, "_hsta_global_topk", False)),
     }
+    manifest_path = Path(out_csv).with_suffix(".manifest.json")
+    manifest = {
+        "dataset": dataset_name,
+        "size": size,
+        "seed": 599,
+        "random_seeds": report["random_seeds"],
+        "temporal_date_splits": report["temporal_date_splits"],
+        "known_apps": report["known_apps"],
+        "known_app_selection": report["known_app_selection"],
+        "unknown_candidate_pool": report["unknown_candidate_pool"],
+        "unknown_application_groups": report["unknown_application_groups"],
+        "real_unknown_requested_by_split": report.get("real_unknown_requested_by_split", {}),
+        "real_unknown_available_by_split": report.get("real_unknown_available_by_split", {}),
+        "real_unknown_actual_by_split": report.get("real_unknown_actual_by_split", {}),
+        "noise_ratio": float(noise_ratio),
+        "noise_families": report.get("synthetic_noise", {}).get("noise_families", {}),
+    }
+    with manifest_path.open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, ensure_ascii=False, indent=2)
+    report["manifest_path"] = _project_path(manifest_path, root)
     report_path = Path(out_csv).with_suffix(".report.json")
     with report_path.open("w", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=2)

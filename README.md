@@ -1,72 +1,46 @@
-# HSTA-CM：CESNET 加密流量开放集识别
+# HSTA-CM：60 类加 unknown 的流量识别
 
-本项目实现 HSTA-CM 的 40 类开放集实验。模型统一接收 CESNET-TLS22-S 或 CESNET-QUIC22-S 的前 30 个数据包，每个包包含包长、方向和包间隔三个特征，输入形状为 `[30, 3]`。每个数据集固定 40 个已知类别；开放模型另有 `unknown` 类，因此输出 41 类。
+项目在 CESNET-TLS22-S 和 CESNET-QUIC22-S 上运行固定的正式开放集实验。每个数据集独立选择训练日期内流量最多的 60 个应用作为已知类别。每条流使用前 30 个包的包长、方向和包间隔，输入为 [B,30,3]。HSTA-CM-open 输出 61 类；closed 和五个适配基线输出 60 类。
 
-## 当前实验
+## 数据与主模型
 
-- **HSTA-CM-open**：三层残差 `Conv1d`、两层残差 Mamba、融合全连接、位置编码、PyTorch FlashAttention、LayerNorm 和分类头；TLS 采用结构筛选胜出的 DFT 三路配置，QUIC 采用胜出的双路多尺度配置；训练 unknown 支持流量，输出 41 类。
-- **HSTA-CM-closed**：同一结构但只训练 40 个已知类，输出 40 类；测试时用已知验证流量校准拒识阈值。
-- **组件消融**：`no_conv-open`、`no_mamba-open`、`no_attention-open`，保持 256 维、数据划分、unknown 训练规则和随机种子不变。
-- **五个适配基线**：30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN。它们均使用闭集 40 类训练，不使用 unknown 监督；TrafficAudio 内部的 BiGRU 属于该模型，不单列 GRU 或 Transformer 对照。
+两个最终文件为 data/processed/datazoo_tls60_s_protocol.csv 和 data/processed/datazoo_quic60_s_protocol.csv。每个已知类训练/验证/测试上限为 10000/2000/2000。真实 unknown 和噪声分别以同 split 的实际已知数量的 30% 和 10% 为目标；不是占最终混合数据的比例。全部满足时，混合数据中已知/真实 unknown/噪声约占 71.43%/21.43%/7.14%。严格按日期划分，unknown 应用身份与噪声生成族跨集合隔离；不足时报告 actual，不重复、不跨日期补采。直接扫描原始 H5，训练不使用 source 候选 CSV。
 
-每个数据集的正式主比较运行 HSTA-CM-open、HSTA-CM-closed 和五个基线，共 7 个运行；消融实验单独运行。结构筛选保存在 `results/hsta_cm_structure_s`，用于确定两个数据集的主配置。数据统一提供 `small=200/40/40`、`medium=2000/400/400`、`large=20000/4000/4000` 三档（训练/验证/测试每类上限），随机种子为 `599`，所有训练从第 1 轮开始，最多 100 轮，验证集已知类别 Macro-F1 连续 15 轮不提升时早停。
+两个数据集采用同一三路、256 维主模型：
 
-## 数据
+- 时序状态空间分支：两层残差 Mamba，30 个包 token。
+- 包序列多尺度卷积分支：三层残差 Conv1d，核 1/3/5，30 个包 token。
+- 频域多尺度卷积分支：rFFT 保留实部和虚部，三层残差 Conv1d，核 1/3/5，16 个频率 token。
 
-项目保留已经审计的 40 类协议数据和三档采样缓存：
+加入包位置、频率位置和三种分支类型编码，76 个 token 经融合全连接和一层 PyTorch FlashAttention 块。注意力块包含 LayerNorm、残差和前馈网络，最终按分支等权池化并分类。DFT 是当前主模型的组成部分。
 
-```text
-data/processed/datazoo_tls40_s_protocol_small.csv
-data/processed/datazoo_quic40_s_protocol_small.csv
-data/processed/datazoo_tls40_s_protocol_medium.csv
-data/processed/datazoo_quic40_s_protocol_medium.csv
-data/processed/datazoo_tls40_s_protocol_large.csv
-data/processed/datazoo_quic40_s_protocol_large.csv
-```
+## 实验与运行
 
-每套数据同时有 `report.json`、`audit.json` 和 `sampling_manifest.json`。真实 unknown 按应用来源均衡，目标为该 split 已知流量的 50%；合成噪声目标为 10%，且训练、验证、测试使用互斥的噪声族。`source_group`、原始应用和噪声族只用于审计与分层统计，不作为模型输入。原始 CESNET H5 数据不重新下载，也不提交 Git。
+保留 HSTA-CM-open、HSTA-CM-closed、30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN。五个基线是统一 PPI 输入下的适配实现；TrafficAudio 内部 BiGRU 保留。seed 为 599、5009、813，主比较共 42 次训练；no_conv、no_mamba、no_attention 共 18 次消融。训练目标有效优化器批次为 4096、验证/测试批次为 512；CUDA 显存不足时依次尝试较小微批次并累积梯度，每 4096 个样本执行一次优化器更新，记录实际微批次。若某模型含 BatchNorm，回退会改变其批次统计行为，因此结果中会标出实际微批次；主模型必须通过 4096 批次 CUDA smoke test。效率只测完整主模型推理 batch 1/8/32。所有训练从第 1 轮开始，最大 100 轮、patience 15，按已知验证 Macro-F1 调度和早停。raw argmax 与 threshold rejection 分开保存，阈值只用已知验证流量校准。
 
-## 运行
+训练环境固定为 WSL Ubuntu-22.04 与 /opt/traffic-mamba-venv：
 
-Windows 环境检查：
+~~~powershell
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && bash scripts/run_formal_pipeline.sh"
+~~~
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
-```
-
-训练、Mamba 和 FlashAttention 必须在指定 WSL 环境执行：
-
-```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && bash scripts/run_wsl_experiments.sh main"
-```
-
-三个入口分别是：
-
-```bash
-bash scripts/run_wsl_experiments.sh main       # TLS40/QUIC40 主比较
-bash scripts/run_wsl_experiments.sh ablation   # 三个 HSTA-CM 组件消融
-bash scripts/run_wsl_experiments.sh efficiency # batch 1、8、32 效率测试
-```
-
-实验配置位于 `configs/compact_s.yaml` 和 `configs/hsta_cm_ablation_s.yaml`。不使用旧 checkpoint；输出写入 `results/compact_s` 和 `results/hsta_cm_ablation_s`，这些目录被 Git 忽略。
-
-## 评价
-
-每个运行同时保存 raw argmax 和 threshold rejection 两套结果。报告已知类别 Accuracy/Macro-F1、unknown Precision/Recall/F1、AUROC、AUPR、已知流量误拒率、未知流量误判为已知比例、混合测试集 Accuracy/Macro-F1、参数量、训练轮数和运行时间，并按 `unknown_test_heldout` 与 `noise_test` 分层。拒识阈值只由已知验证流量校准。
-
-TLS small 验证集中部分已知类别样本较少，Macro-F1 需结合每类样本数解释；单种子结果不表示均值和标准差。
+首次正式运行在该环境启动 bash scripts/run_formal_pipeline.sh；它会先做验收、导出并审计两份数据，然后依次运行主比较、消融、效率和汇总。完整后台队列成功启动后停止主动轮询，后续询问时再读取日志。
 
 ## 目录
 
 | 路径 | 用途 |
 | --- | --- |
-| `data/` | DataZoo 读取、协议缓存、采样和审计 |
-| `models/` | HSTA-CM 与五个适配基线 |
-| `configs/` | 当前主实验和消融配置 |
-| `train.py` | 单次训练、早停、校准和测试 |
-| `evaluate.py` | 载入检查点并重新评估 |
-| `run_experiments.py` | 按 YAML 批量运行 |
-| `scripts/` | WSL 入口、数据审计和结果汇总 |
-| `docs/` | 架构、协议、范围和复现说明 |
+| data/raw/ | 本地原始 H5、应用映射 |
+| data/processed/ | 两份最终数据及 report、audit、sampling manifest |
+| models/ | 三路 HSTA-CM、Mamba/FlashAttention 模块、五个适配基线 |
+| configs/ | 当前正式主比较和消融配置 |
+| train.py、evaluate.py | 训练、校准、评估 |
+| run_experiments.py | 多模型、多数据集、多 seed 批量运行 |
+| benchmark_efficiency.py | batch 1/8/32 推理测量 |
+| scripts/ | 导出、审计、WSL 入口、汇总 |
+| results/、logs/ | 本地结果、checkpoint、后台日志 |
+| docs/ | 中文架构、协议、范围、复现说明 |
 
-详细约定见 [docs/architecture.md](docs/architecture.md)、[docs/experiment_protocol.md](docs/experiment_protocol.md)、[docs/experiment_scope.md](docs/experiment_scope.md) 和 [docs/reproducibility.md](docs/reproducibility.md)。
+代码、配置、测试和文档提交 Git；数据、日志、结果和 checkpoint 保持忽略。论文存放在仓库外 E:\AllProject\流量分析python项目\paper。旧生成产物移到仓库外归档，原始 H5 保留。
+
+详细规则见 [架构说明](docs/architecture.md)、[实验协议](docs/experiment_protocol.md)、[实验范围](docs/experiment_scope.md)、[复现说明](docs/reproducibility.md)。

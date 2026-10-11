@@ -60,3 +60,11 @@ def test_eval_persists_raw_and_threshold_metric_names():
         assert f"{prefix}_unknown_false_known_rate" in metrics
         assert f"{prefix}_known_macro_f1" in metrics
         assert f"{prefix}_open_set_macro_f1" in metrics
+
+
+def test_open_threshold_uses_calibrated_rule_instead_of_unknown_argmax():
+    # Unknown wins argmax, but stays below the specified operating threshold.
+    metrics = open_set_metrics([0, 2], [2, 2], [[1., 0., 2.], [0., 0., 9.]],
+                               classes=["a", "b", "unknown"], reject_threshold=0.9)
+    assert metrics["known_false_unknown_rate"] == 0.0
+    assert metrics["unknown_recall"] == 1.0

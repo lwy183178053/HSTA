@@ -32,22 +32,23 @@ SUMMARY_COLUMNS = (
     "best_epoch",
     "stop_reason",
     "best_val_metric",
+    "effective_train_batch_size",
+    "train_batch_size",
+    "eval_batch_size",
+    "train_microbatch_sizes",
+    "train_microbatch_size_min",
+    "train_microbatch_size_max",
+    "train_microbatch_fallback_used",
     "total_params",
     "trainable_params",
     "seconds",
     "test_accuracy",
     "test_macro_f1",
-    "test_raw_open_set_macro_f1",
-    "test_threshold_open_set_macro_f1",
-    "test_threshold_known_accuracy",
-    "test_threshold_known_macro_f1",
-    "test_threshold_unknown_precision",
-    "test_threshold_unknown_recall",
-    "test_threshold_unknown_f1",
-    "test_threshold_unknown_auroc",
-    "test_threshold_unknown_aupr",
-    "test_threshold_known_false_unknown_rate",
-    "test_threshold_unknown_false_known_rate",
+) + tuple(
+    f"test_{view}_{metric}" for view in ("raw", "threshold")
+    for metric in ("open_set_accuracy", "open_set_macro_f1", "known_accuracy", "known_macro_f1",
+                   "unknown_precision", "unknown_recall", "unknown_f1", "unknown_auroc",
+                   "unknown_aupr", "known_false_unknown_rate", "unknown_false_known_rate")
 )
 
 
@@ -66,6 +67,73 @@ def _grad_scaler(enabled: bool):
         return torch.amp.GradScaler("cuda", enabled=enabled)
     except TypeError:
         return torch.cuda.amp.GradScaler(enabled=enabled)
+
+
+def _is_cuda_oom(error: RuntimeError) -> bool:
+    out_of_memory_type = getattr(torch.cuda, "OutOfMemoryError", ())
+    return (bool(out_of_memory_type) and isinstance(error, out_of_memory_type)) or "out of memory" in str(error).lower()
+
+
+def _train_accumulated_batch(
+    model,
+    x,
+    y,
+    device,
+    criterion,
+    optimizer,
+    scaler,
+    use_amp: bool,
+    microbatch_candidates: list[int],
+) -> tuple[float, int]:
+    """Apply one effective-batch optimizer step, retrying CUDA OOM at smaller microbatches."""
+    batch_count = int(y.shape[0])
+    candidates = list(dict.fromkeys(min(batch_count, int(size)) for size in microbatch_candidates if int(size) > 0))
+    if not candidates:
+        raise ValueError("microbatch_candidates must contain a positive size")
+    cuda_device = str(device).startswith("cuda")
+
+    for candidate_index, microbatch_size in enumerate(candidates):
+        optimizer.zero_grad(set_to_none=True)
+        loss_sum = 0.0
+        x_micro = y_micro = logits = loss = None
+        try:
+            for start in range(0, batch_count, microbatch_size):
+                end = min(start + microbatch_size, batch_count)
+                x_micro = x[start:end].to(device, non_blocking=True)
+                y_micro = y[start:end].to(device, non_blocking=True)
+                with _autocast(bool(use_amp and cuda_device)):
+                    logits = model(x_micro)
+                    loss = criterion(logits, y_micro)
+                if not torch.isfinite(loss):
+                    optimizer.zero_grad(set_to_none=True)
+                    return float(loss.detach().item()), microbatch_size
+                count = end - start
+                loss_sum += float(loss.detach().item()) * count
+                scaler.scale(loss * (count / batch_count)).backward()
+                del x_micro, y_micro, logits, loss
+        except RuntimeError as error:
+            optimizer.zero_grad(set_to_none=True)
+            if not cuda_device or not _is_cuda_oom(error):
+                raise
+            x_micro = y_micro = logits = loss = None
+            torch.cuda.empty_cache()
+            if candidate_index + 1 >= len(candidates):
+                tried = ", ".join(str(value) for value in candidates)
+                raise RuntimeError(
+                    f"CUDA out of memory for effective batch {batch_count}; "
+                    f"all microbatch sizes failed: {tried}"
+                ) from error
+            next_size = candidates[candidate_index + 1]
+            print(f"[batch] CUDA OOM at microbatch {microbatch_size}; retrying with {next_size}")
+            continue
+
+        # Keep optimizer.step outside the retry block: retrying after a partial
+        # optimizer update could silently apply a batch twice.
+        scaler.step(optimizer)
+        scaler.update()
+        return loss_sum / batch_count, microbatch_size
+
+    raise AssertionError("unreachable microbatch retry state")
 
 
 def eval_model(
@@ -165,6 +233,14 @@ def eval_model(
                     y_true[mask], y_pred[mask], logits[mask], classes, unknown_index, reject_threshold,
                 ),
             }
+            if group in {"unknown_test_heldout", "noise_test"}:
+                # Pair this unknown source with the known test population
+                # so precision, AUROC and AUPR have both positive/negative data.
+                mixed = mask | (y_true != int(unknown_index))
+                grouped[group]["mixed_with_known"] = {
+                    "raw": open_set_metrics(y_true[mixed], y_pred[mixed], logits[mixed], classes, unknown_index),
+                    "threshold": open_set_metrics(y_true[mixed], y_pred[mixed], logits[mixed], classes, unknown_index, reject_threshold),
+                }
         metrics["source_group_metrics"] = grouped
     return (
         metrics,
@@ -234,7 +310,7 @@ def _load_state_dict(path: Path, device):
 def load_model_state(model, state_dict: dict, context: str = "checkpoint"):
     """Load a checkpoint with the current model layout.
 
-    The active 40-class protocol starts every run from a fresh model.  Resume
+    The active 60-class protocol starts every run from a fresh model.  Resume
     checkpoints therefore must match the current architecture exactly; legacy
     parameters are intentionally not migrated or silently ignored.
     """
@@ -261,23 +337,33 @@ def _load_training_checkpoint(path: Path, model, optimizer, scaler, scheduler, d
     if optimizer_restored and load_optimizer and scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
     return checkpoint, optimizer_restored
-    return checkpoint
 
 
 def train_one(cfg: dict):
-    seed_everything(int(cfg.get("seed", 42)))
+    seed_everything(int(cfg.get("seed", 599)))
     output_dir = Path(cfg.get("output_dir", "results")) / cfg["exp_name"]
     ensure_dir(output_dir)
 
     device = "cuda" if torch.cuda.is_available() and not cfg.get("cpu", False) else "cpu"
+    train_batch_size = int(cfg.get("batch_size", 256))
+    eval_batch_size = int(cfg.get("eval_batch_size", min(train_batch_size, 512)))
+    fallback_sizes = [int(size) for size in cfg.get("oom_microbatch_fallbacks", [])]
+    microbatch_candidates = list(dict.fromkeys([train_batch_size] + fallback_sizes))
+    if train_batch_size <= 0 or eval_batch_size <= 0 or any(size <= 0 for size in fallback_sizes):
+        raise ValueError("batch_size, eval_batch_size and OOM fallback sizes must be positive")
+    print(
+        f"[batch] effective={train_batch_size}, eval={eval_batch_size}, "
+        f"microbatch candidates={microbatch_candidates} (CUDA OOM fallback)"
+    )
     loaders = make_loaders(
         cfg["data_csv"],
         seq_len=int(cfg.get("seq_len", 30)),
         feature_cols=cfg.get("feature_cols"),
-        batch_size=int(cfg.get("batch_size", 256)),
+        batch_size=train_batch_size,
+        eval_batch_size=eval_batch_size,
         test_size=float(cfg.get("test_size", 0.2)),
         val_size=float(cfg.get("val_size", 0.1)),
-        seed=int(cfg.get("seed", 42)),
+        seed=int(cfg.get("seed", 599)),
         num_workers=int(cfg.get("num_workers", 0)),
         train_unknown=bool(cfg.get("train_unknown", True)),
     )
@@ -334,6 +420,7 @@ def train_one(cfg: dict):
     bad_epochs = 0
     stopped_epoch = 0
     stop_reason = ""
+    used_microbatch_sizes: set[int] = set()
 
     scheduler = None
     scheduler_info = {"enabled": False}
@@ -362,6 +449,7 @@ def train_one(cfg: dict):
         checkpoint, optimizer_restored = _load_training_checkpoint(
             latest_path, model, optimizer, scaler, scheduler, device, load_optimizer=load_optimizer
         )
+        used_microbatch_sizes = {int(size) for size in checkpoint.get("train_microbatch_sizes", [])}
         history = checkpoint.get("history", [])
         start_epoch = int(checkpoint.get("epoch", 0)) + 1
         best = float(checkpoint.get("best", best))
@@ -392,6 +480,7 @@ def train_one(cfg: dict):
             device,
             load_optimizer=not (extend_training and bool(cfg.get("reset_optimizer_on_extend", False))),
         )
+        used_microbatch_sizes = {int(size) for size in checkpoint.get("train_microbatch_sizes", [])}
         history_df = pd.read_csv(history_path)
         if early_metric in history_df.columns:
             metric_values = pd.to_numeric(history_df[early_metric], errors="coerce")
@@ -450,6 +539,7 @@ def train_one(cfg: dict):
                 "scheduler": scheduler_info,
                 "elapsed_seconds": float(previous_seconds + time.time() - start),
                 "attention_runtime": attention_runtime,
+                "train_microbatch_sizes": sorted(used_microbatch_sizes),
             },
             latest_path,
         )
@@ -461,20 +551,15 @@ def train_one(cfg: dict):
         epoch_stop_reason = ""
         lr_before = float(optimizer.param_groups[0]["lr"])
         for batch_idx, (x, y) in enumerate(tqdm(loaders["train"], desc=f"{cfg['exp_name']} ep{epoch}/{epochs}", leave=False), start=1):
-            x = x.to(device)
-            y = y.to(device)
-            optimizer.zero_grad(set_to_none=True)
-            with _autocast(use_amp):
-                loss = criterion(model(x), y)
-            if not torch.isfinite(loss):
+            loss_value, microbatch_size = _train_accumulated_batch(
+                model, x, y, device, criterion, optimizer, scaler, use_amp, microbatch_candidates,
+            )
+            used_microbatch_sizes.add(int(microbatch_size))
+            if not np.isfinite(loss_value):
                 nonfinite_train_batches += 1
                 epoch_stop_reason = f"nonfinite_train_loss_batch_{batch_idx}"
                 print(f"[warn] {cfg['exp_name']} epoch {epoch}: non-finite train loss at batch {batch_idx}; stopping this experiment")
                 break
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            loss_value = float(loss.detach().item())
             losses.append(loss_value)
 
         if epoch_stop_reason:
@@ -573,6 +658,7 @@ def train_one(cfg: dict):
                     "scheduler": scheduler_info,
                     "elapsed_seconds": float(previous_seconds + time.time() - start),
                     "attention_runtime": attention_runtime,
+                    "train_microbatch_sizes": sorted(used_microbatch_sizes),
                 },
                 best_path,
             )
@@ -617,7 +703,7 @@ def train_one(cfg: dict):
     result = {
         "exp_name": cfg["exp_name"],
         "model": cfg["model"],
-        "seed": int(cfg.get("seed", 42)),
+        "seed": int(cfg.get("seed", 599)),
         "layout": "|".join(expanded_layout),
         "block_repeats": block_repeats,
         "hybrid_layers": len(expanded_layout),
@@ -626,6 +712,15 @@ def train_one(cfg: dict):
         "total_params": total_params,
         "trainable_params": trainable_params,
         "trainable_ratio": trainable_params / max(total_params, 1),
+        "effective_train_batch_size": int(loaders["train_batch_size"]),
+        "train_batch_size": int(loaders["train_batch_size"]),
+        "eval_batch_size": int(loaders["eval_batch_size"]),
+        "train_microbatch_sizes": sorted(used_microbatch_sizes),
+        "train_microbatch_size_min": min(used_microbatch_sizes) if used_microbatch_sizes else 0,
+        "train_microbatch_size_max": max(used_microbatch_sizes) if used_microbatch_sizes else 0,
+        "train_microbatch_fallback_used": any(
+            size < int(loaders["train_batch_size"]) for size in used_microbatch_sizes
+        ),
         "epochs_run": len(history),
         "best_epoch": best_epoch,
         "stopped_epoch": stopped_epoch,

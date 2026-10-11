@@ -1,57 +1,58 @@
-"""Structural checks for HSTA-CM and the retained baseline registry."""
-
-from __future__ import annotations
-
+"""三路模型及组件消融的结构和 CUDA 前后向检查。"""
 import importlib.util
-
 import pytest
 import torch
-
 from models import build_model
 from models.flash_attention import FlashAttentionBlock, FlashSelfAttention
 
 
-def test_flash_attention_is_strict_and_has_no_manual_backend():
-    attention = FlashSelfAttention(dim=32, heads=4, dropout=0.0)
-    assert attention.attention_backend == "flash"
-    assert attention.flash_attention_enforced is True
+def test_flash_attention_is_strict():
+    attention = FlashSelfAttention(32, heads=4)
     with pytest.raises(RuntimeError, match="FlashAttention"):
         attention(torch.randn(2, 30, 32))
 
 
-@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
-def test_hsta_cm_has_three_conv_two_mamba_position_and_flash_attention_components():
-    model = build_model(
-        "hsta-cm",
-        input_dim=3,
-        num_classes=41,
-        seq_len=30,
-        cfg={"dim": 256, "heads": 4, "dropout": 0.0, "depth": 2, "attention_backend": "flash"},
-    )
-    assert model.layout == (
-        "conv1d_x3_residual", "mamba_x2_residual", "fusion_fc", "flash_attention", "norm_head"
-    )
-    assert model.position.shape == (1, 30, 256)
-    assert len(model.spatial) == 3
-    assert sum(isinstance(module, torch.nn.Conv1d) for module in model.spatial.modules()) == 3
-    assert len(model.temporal) == 2
-    assert all("Mamba" in block.mixer.__class__.__name__ for block in model.temporal)
-    assert isinstance(model.attention, FlashAttentionBlock)
-    assert any(isinstance(module, FlashSelfAttention) for module in model.modules())
-    assert model.head.in_features == 256
-    assert model.head.out_features == 41
+@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm required")
+def test_full_model_and_ablation_token_layouts():
+    full = build_model("hsta-cm", 3, 61, 30)
+    assert full.token_count == 76
+    assert full.branch_names == ("mamba", "raw_conv", "dft_conv")
+    assert full.packet_position.shape == (1, 30, 256)
+    assert full.frequency_position.shape == (1, 16, 256)
+    assert full.branch_type.shape == (3, 256)
+    assert [b[0].kernel_size for b in full.spatial] == [(1,), (3,), (5,)]
+    assert [b[0].kernel_size for b in full.dft_spatial] == [(1,), (3,), (5,)]
+    assert len(full.temporal) == 2
+    assert isinstance(full.attention, FlashAttentionBlock)
+    assert full.head.out_features == 61
+    no_conv = build_model("hsta-cm", 3, 61, 30, {"use_conv": False})
+    assert no_conv.token_count == 30 and no_conv.dft_spatial is None
+    no_mamba = build_model("hsta-cm", 3, 61, 30, {"use_mamba": False})
+    assert no_mamba.token_count == 46 and len(no_mamba.temporal) == 0
+    assert isinstance(build_model("hsta-cm", 3, 61, 30, {"use_attention": False}).attention, torch.nn.Identity)
 
 
-@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm is required")
-def test_hsta_cm_ablation_flags_remove_only_requested_components():
-    no_conv = build_model("hsta-cm", 3, 41, 30, {"dim": 256, "use_conv": False})
-    no_mamba = build_model("hsta-cm", 3, 41, 30, {"dim": 256, "use_mamba": False})
-    no_attention = build_model("hsta-cm", 3, 41, 30, {"dim": 256, "use_attention": False})
-    assert no_conv.spatial is None and len(no_conv.temporal) == 2
-    assert len(no_mamba.temporal) == 0 and len(no_mamba.spatial) == 3
-    assert isinstance(no_attention.attention, torch.nn.Identity)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="supported WSL mamba_ssm environment required")
+@pytest.mark.parametrize("flags,tokens", [({}, 76), ({"use_conv": False}, 30), ({"use_mamba": False}, 46), ({"use_attention": False}, 76)])
+def test_256_dim_61_class_cuda_forward_backward(flags, tokens):
+    model = build_model("hsta-cm", 3, 61, 30, flags).cuda().train()
+    seen = []
+    hook = model.token_fusion.register_forward_pre_hook(lambda module, args: seen.append(args[0].shape[1]))
+    with torch.autocast("cuda", dtype=torch.float16):
+        logits = model(torch.randn(2, 30, 3, device="cuda"))
+        loss = torch.nn.functional.cross_entropy(logits, torch.tensor([0, 60], device="cuda"))
+    assert logits.shape == (2, 61) and torch.isfinite(loss)
+    loss.backward()
+    hook.remove()
+    assert seen == [tokens]
+    assert model.head.weight.grad is not None
+    for module in model.modules():
+        if isinstance(module, FlashSelfAttention):
+            assert module.actual_attention_backend == "flash"
 
 
-def test_legacy_hsta_registry_name_is_removed():
+@pytest.mark.parametrize("name", ["hsta", "gru", "transformer", "hsta_cm_dft"])
+def test_obsolete_registry_names_rejected(name):
     with pytest.raises(ValueError):
-        build_model("hsta", input_dim=3, num_classes=41, seq_len=30, cfg={})
+        build_model(name, 3, 61, 30)

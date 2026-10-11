@@ -30,17 +30,20 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && sour
 
 ## Experiment groups
 
-- Compact open-set comparison: `results/compact_s`
-- HSTA-CM component checks: `results/hsta_cm_ablation_s`
+- Formal 60-class comparisons: `results/formal60`
+- HSTA-CM ablations: `results/hsta_cm_ablation_formal60`
 - Efficiency tests: `results/efficiency_benchmark`
 
 ## Common entry points
 
 ```bash
+bash scripts/run_formal_pipeline.sh
 bash scripts/run_wsl_experiments.sh main
 bash scripts/run_wsl_experiments.sh ablation
 bash scripts/run_wsl_experiments.sh efficiency
 ```
+
+The full pipeline exports and audits the formal TLS/QUIC CSVs before starting training. Individual experiment commands assume the final CSVs already exist and passed audit.
 
 Windows environment check:
 

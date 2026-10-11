@@ -1,68 +1,42 @@
-# 复现说明
+# 正式实验复现说明
 
 ## 环境
 
-Windows 检查和依赖安装使用项目解释器：
+Windows 检查使用项目解释器：
 
-```powershell
-& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m pip install -r requirements.txt
-powershell -ExecutionPolicy Bypass -File scripts\\check_environment.ps1
-```
+~~~powershell
+& 'D:\ProgramData\anaconda3\envs\mybase\python.exe' -m pytest -q
+powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
+~~~
 
-训练、Mamba 和 CUDA FlashAttention 使用 `Ubuntu-22.04` 与 `/opt/traffic-mamba-venv`：
+训练、Mamba 和 FlashAttention 固定使用 Ubuntu-22.04 与 /opt/traffic-mamba-venv：
 
-```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
-```
+~~~powershell
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
+~~~
 
-正式配置要求 PyTorch FlashAttention 后端；环境缺少 CUDA 或后端时应先修复环境，不把 CPU 数学回退结果当作正式结果。
+## 数据与正式队列
 
-## 数据
+使用本地原始 H5、servicemap，直接导出唯一 TLS60/QUIC60 CSV，数据 seed 599。时间、类别选择、30% 真实 unknown、10% 噪声和身份隔离见实验协议。report、audit、sampling manifest 记录实际数量与来源。先归档旧产物，再重建，不使用旧 source 或 checkpoint。
 
-使用项目中已审计的 40 类三档 CSV，不重新下载 CESNET 原始 H5：
+正式训练目标有效优化器批次为 4096，验证/测试批次为 512。显存不足时以 2048、1024、512 微批次累积梯度，并记录实际微批次。回退可保持每次优化器更新所含样本数，但含 BatchNorm 的模型会按微批次计算统计量；主 HSTA-CM 需通过完整 4096 批次的 CUDA smoke test。
 
-```text
-data/processed/datazoo_tls40_s_protocol_small.csv
-data/processed/datazoo_quic40_s_protocol_small.csv
-data/processed/datazoo_tls40_s_protocol_medium.csv
-data/processed/datazoo_quic40_s_protocol_medium.csv
-data/processed/datazoo_tls40_s_protocol_large.csv
-data/processed/datazoo_quic40_s_protocol_large.csv
-```
+在指定 WSL 环境的项目根目录运行：
 
-对应的 `report.json`、`audit.json` 和 `sampling_manifest.json` 记录类别清单、时间划分、实际样本数、unknown 应用和噪声族。训练/验证/测试按完整 flow 分离；scaler 仅由训练数据拟合。若需重建缓存，必须使用与清单相同的类别映射、时间窗口和 seed 599，并重新运行数据审计。
-
-small 每类目标数量为训练 200、验证 40、测试 40；medium 为 2000/400/400，large 为 20000/4000/4000；不足时保留全部。每个 split 的真实 unknown 目标为已知流量的 50%，合成噪声目标为 10%，unknown 按应用来源均衡采样。时间窗口为首周 7 天训练、下一周第 1 天验证、下一周后 6 天测试：TLS `20211004-20211010 / 20211011 / 20211012-20211017`，QUIC `20221031-20221106 / 20221107 / 20221108-20221113`。复现报告须同时保留每类和每个 unknown 来源组的支持数。
-
-## 运行
-
-在 WSL 项目根目录执行：
-
-```bash
+~~~bash
 bash scripts/run_wsl_experiments.sh main
 bash scripts/run_wsl_experiments.sh ablation
 bash scripts/run_wsl_experiments.sh efficiency
-```
+~~~
 
-`main` 读取 `configs/compact_s.yaml`，运行 TLS40/QUIC40 的 HSTA-CM-open、HSTA-CM-closed 和五个基线；`ablation` 读取 `configs/hsta_cm_ablation_s.yaml`，运行三个组件消融。两个入口均从空的结果目录启动，不使用旧 checkpoint。效率入口只测 batch size `1、8、32`。
+main 为 42 次主训练，ablation 为 18 次消融，efficiency 仅测完整主模型 batch 1/8/32。全部从第 1 轮开始，最多 100 轮、patience 15，以已知验证 Macro-F1 调度和早停。完整后台队列依次完成导出、审计、主训练、消融、效率及汇总，异常写失败状态和日志。
 
-训练上限为 100 轮，验证集已知 Macro-F1 连续 15 轮没有提升即早停。每个目录写入 `config.yaml`、`history.csv`、最佳和最近检查点、`summary.csv`、`metrics.json` 以及逐样本预测。`metrics.json` 同时包含 raw argmax 和 threshold rejection；阈值只由已知验证流量校准。
+主比较配置为 configs/compact_s.yaml，结果写入 results/formal60；消融配置为 configs/hsta_cm_ablation_s.yaml，结果写入 results/hsta_cm_ablation_formal60；效率写入 results/efficiency_benchmark。配置文件名中的 s 表示 S 源数据集，不表示小规模。完整首次队列由 bash scripts/run_formal_pipeline.sh 启动；数据已经生成并通过审计后，可分别运行 scripts/run_wsl_experiments.sh main、ablation、efficiency，不会重新导出数据。
 
-## 验证
+初次启动检查进程存活和首段日志；确认成功后不主动轮询。后续询问时读取日志/状态。导出预计 1–3 小时、单卡全套训练预计 2–5 天，只是初估；应结合实际每轮时间更新。
 
-运行前执行：
+## 验收与保存
 
-```powershell
-& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m pytest -q
-& 'D:\\ProgramData\\anaconda3\\envs\\mybase\\python.exe' -m compileall -q models data scripts train.py run_experiments.py evaluate.py
-```
+运行 pytest、编译、CUDA smoke test：完整模型 76 token，open 输出 61 类、closed 60 类，三种编码和 FlashAttention 后端启用。审计日期、flow ID、应用身份、噪声族、类别映射及实际数量。每个结果保留完整配置、seed、类别映射、scaler、阈值、训练历史、checkpoint、raw/threshold 及来源分层指标。
 
-并确认两个数据审计报告均显示 40 个已知类、unknown 来源隔离、噪声族互斥和无 flow 交集。CUDA smoke test 应验证 HSTA-CM-open 输入 `(2,30,3)` 输出 `(2,41)`，closed 输出 `(2,40)`。结果汇总：
-
-```bash
-python scripts/summarize_compact_results.py
-```
-
-## 版本和归档
-
-代码、配置和文档由 Git 保存；`data/`、`results/`、`logs/`、检查点和原始流量保持忽略。提交前运行 `git diff --check`，确认提交中没有本地数据、凭据或环境文件。论文只引用通过审计且保存了配置、seed、类别映射、scaler、阈值及来源分层指标的运行。
+汇总三 seed 单次结果与 mean±std，不引用归档结构搜索或不同类别规模数据。样本不足在论文中说明。代码、配置、测试、文档提交 Git；数据、报告、日志、结果、checkpoint、本地环境文件忽略。提交前执行 git diff --check 并核对暂存文件。论文和图表放仓库外 E:\AllProject\流量分析python项目\paper。

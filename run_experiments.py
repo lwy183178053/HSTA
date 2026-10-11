@@ -9,6 +9,7 @@ import yaml
 
 from train import SUMMARY_COLUMNS, compact_result, train_one
 from utils import deep_merge, ensure_dir
+from experiment_config import expand_seeded_experiments
 
 
 def _completed_result(cfg: dict):
@@ -48,7 +49,7 @@ def _merge_experiment(base: dict, exp: dict) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the closed-set experiments used by Revision 10.")
+    parser = argparse.ArgumentParser(description="运行 60 类正式主比较或组件消融。")
     parser.add_argument("--config", default="configs/compact_s.yaml")
     parser.add_argument("--resume", dest="resume", action="store_true", default=True)
     parser.add_argument("--no-resume", dest="resume", action="store_false")
@@ -77,7 +78,7 @@ def main():
     base = cfg["base"]
     if args.output_dir:
         base["output_dir"] = args.output_dir
-    configured = [_merge_experiment(base, exp) for exp in cfg["experiments"]]
+    configured = [_merge_experiment(base, exp) for exp in expand_seeded_experiments(cfg)]
     configured_names = {exp["exp_name"] for exp in configured}
     selected = set(args.only or [])
     unknown = selected - configured_names
@@ -99,6 +100,11 @@ def main():
             rows.append(completed)
         else:
             rows.append(compact_result(train_one(merged)))
+        # Save progress after each completed run, even if a later run fails.
+        _merge_and_write_results(
+            Path(base.get("output_dir", "results")) / "all_results.csv",
+            pd.DataFrame(rows), configured_names if not selected else None,
+        )
 
     if not rows:
         print("No experiments selected.")

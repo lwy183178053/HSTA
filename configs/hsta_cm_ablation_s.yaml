@@ -1,11 +1,13 @@
+# 60 类正式开放集实验；三个独立训练种子，固定同一份数据。
+seeds: [599, 5009, 813]
 base:
-  output_dir: results/hsta_cm_ablation_s
+  output_dir: results/hsta_cm_ablation_formal60
   seed: 599
   epochs: 100
   patience: 15
-  reset_optimizer_on_extend: false
-  reset_patience_on_extend: true
-  batch_size: 256
+  batch_size: 4096
+  eval_batch_size: 512
+  oom_microbatch_fallbacks: [2048, 1024, 512]
   lr: 0.0005
   weight_decay: 0.0001
   lr_scheduler: reduce_on_plateau
@@ -20,7 +22,8 @@ base:
   seq_len: 30
   amp: true
   num_workers: 0
-  model: hsta-cm
+  calibrate_reject_threshold: true
+  reject_threshold_quantile: 0.95
   model_cfg:
     dim: 256
     depth: 2
@@ -30,46 +33,35 @@ base:
     d_state: 16
     d_conv: 4
     expand: 2
-    pooling: mean
-    max_len: 30
-    conv_kernel_size: 3
     attention_backend: flash
-    use_position: true
-    use_conv: true
-    use_mamba: true
-    use_attention: true
-  train_unknown: true
-  calibrate_reject_threshold: true
-  reject_threshold_quantile: 0.95
-
 experiments:
-  - exp_name: hsta_cm_no_conv_open_tls40_s_seed599
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_conv_open_tls60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_conv: false}
-  - exp_name: hsta_cm_no_mamba_open_tls40_s_seed599
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_mamba_open_tls60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_tls40_s_seed599
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_attention_open_tls60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_attention: false}
-  - exp_name: hsta_cm_no_conv_open_quic40_s_seed599
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_conv_open_quic60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_conv: false}
-  - exp_name: hsta_cm_no_mamba_open_quic40_s_seed599
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_mamba_open_quic60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_quic40_s_seed599
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+  - exp_name: hsta_cm_no_attention_open_quic60
+    model: hsta-cm
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_attention: false}

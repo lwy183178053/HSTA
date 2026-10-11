@@ -1,11 +1,13 @@
+# 60 类正式开放集实验；三个独立训练种子，固定同一份数据。
+seeds: [599, 5009, 813]
 base:
-  output_dir: results/compact_s
+  output_dir: results/formal60
   seed: 599
   epochs: 100
   patience: 15
-  reset_optimizer_on_extend: false
-  reset_patience_on_extend: true
-  batch_size: 256
+  batch_size: 4096
+  eval_batch_size: 512
+  oom_microbatch_fallbacks: [2048, 1024, 512]
   lr: 0.0005
   weight_decay: 0.0001
   lr_scheduler: reduce_on_plateau
@@ -31,119 +33,69 @@ base:
     d_state: 16
     d_conv: 4
     expand: 2
-    pooling: mean
-    max_len: 30
-    conv_kernel_size: 3
     attention_backend: flash
-    use_position: true
-
 experiments:
-  - exp_name: hsta_cm_open_tls40_s_seed599
+  - exp_name: hsta_cm_open_tls60
     model: hsta-cm
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
-    # TLS structure-screen winner: Mamba + raw Conv1d + DFT Conv1d.
-    model_cfg:
-      max_len: 76
-      pooling: branch_mean
-      use_packet_position: true
-      use_frequency_position: true
-      use_branch_type: true
-      use_dft: true
-      fusion_mode: tokens
-      conv_kernel_schedule: [1, 3, 5]
-      dft_conv_kernel_schedule: [1, 3, 5]
-  - exp_name: hsta_cm_closed_tls40_s_seed599
+  - exp_name: hsta_cm_closed_tls60
     model: hsta-cm
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
-    model_cfg:
-      max_len: 76
-      pooling: branch_mean
-      use_packet_position: true
-      use_frequency_position: true
-      use_branch_type: true
-      use_dft: true
-      fusion_mode: tokens
-      conv_kernel_schedule: [1, 3, 5]
-      dft_conv_kernel_schedule: [1, 3, 5]
-  - exp_name: tcnet_tls40_s_seed599
+  - exp_name: tcnet_tls60
     model: 30pkttcnet-adapted
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 5}
-  - exp_name: netmamba_tls40_s_seed599
+  - exp_name: netmamba_tls60
     model: netmamba-adapted
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 5, max_len: 30}
-  - exp_name: srvit_tls40_s_seed599
+  - exp_name: srvit_tls60
     model: srvit
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 4}
-  - exp_name: trafficaudio_tls40_s_seed599
+  - exp_name: trafficaudio_tls60
     model: trafficaudio
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
     model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}
-  - exp_name: bpfgnn_tls40_s_seed599
+  - exp_name: bpfgnn_tls60
     model: bpf-gnn
-    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
-
-  - exp_name: hsta_cm_open_quic40_s_seed599
+  - exp_name: hsta_cm_open_quic60
     model: hsta-cm
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
-    # QUIC structure-screen winner: Mamba + raw multi-scale Conv1d.
-    model_cfg:
-      conv_kernel_schedule: [1, 3, 5]
-      use_packet_position: true
-      use_branch_type: true
-  - exp_name: hsta_cm_closed_quic40_s_seed599
+  - exp_name: hsta_cm_closed_quic60
     model: hsta-cm
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
-    model_cfg:
-      conv_kernel_schedule: [1, 3, 5]
-      use_packet_position: true
-      use_branch_type: true
-  - exp_name: tcnet_quic40_s_seed599
+  - exp_name: tcnet_quic60
     model: 30pkttcnet-adapted
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 5}
-  - exp_name: netmamba_quic40_s_seed599
+  - exp_name: netmamba_quic60
     model: netmamba-adapted
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 5, max_len: 30}
-  - exp_name: srvit_quic40_s_seed599
+  - exp_name: srvit_quic60
     model: srvit
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
     model_cfg: {depth: 4}
-  - exp_name: trafficaudio_quic40_s_seed599
+  - exp_name: trafficaudio_quic60
     model: trafficaudio
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
     model_cfg: {n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}
-  - exp_name: bpfgnn_quic40_s_seed599
+  - exp_name: bpfgnn_quic60
     model: bpf-gnn
-    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
-    seed: 599
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false

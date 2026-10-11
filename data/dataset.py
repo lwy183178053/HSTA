@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -108,7 +109,7 @@ def load_sequence_csv(
         x = group[feature_cols].to_numpy(dtype="float32")[:seq_len]
         if len(x) < seq_len:
             x = np.pad(x, ((0, seq_len - len(x)), (0, 0)), mode="constant")
-        flows.append(x)
+        flows.append(x[None, :, :])
         label = str(group[label_col].iloc[0])
         labels.append(unknown_label if label.strip().lower() in UNKNOWN_LABEL_ALIASES else label)
         if split_col in group.columns:
@@ -139,11 +140,25 @@ def load_sequence_csv(
             last_flow_id = chunk["flow_id"].iloc[-1]
             complete = chunk.loc[chunk["flow_id"] != last_flow_id]
             carry = chunk.loc[chunk["flow_id"] == last_flow_id].copy()
-            for _, group in complete.groupby("flow_id", sort=False):
-                append_group(group)
+            ids = complete["flow_id"].to_numpy()
+            boundaries = np.r_[0, np.flatnonzero(ids[1:] != ids[:-1]) + 1, len(ids)]
+            if len(ids) and np.all(np.diff(boundaries) == seq_len):
+                # Audited exports contain contiguous, fixed 30-packet flows.
+                # Avoid one Python/Pandas groupby operation per flow.
+                first = complete.iloc[boundaries[:-1]]
+                flows.append(complete[feature_cols].to_numpy(dtype="float32").reshape(-1, seq_len, len(feature_cols)))
+                labels.extend(unknown_label if str(value).strip().lower() in UNKNOWN_LABEL_ALIASES else str(value)
+                              for value in first[label_col].tolist())
+                if split_col in first:
+                    splits.extend(first[split_col].astype(str).str.lower().tolist())
+                if "source_group" in first:
+                    source_groups.extend(first["source_group"].fillna("").astype(str).tolist())
+            else:
+                for _, group in complete.groupby("flow_id", sort=False):
+                    append_group(group)
         else:
             values = chunk[feature_cols].to_numpy(dtype="float32")
-            flows.extend(values[:, None, :])
+            flows.append(values[:, None, :])
             labels.extend(
                 unknown_label if str(label).strip().lower() in UNKNOWN_LABEL_ALIASES else str(label)
                 for label in chunk[label_col].tolist()
@@ -168,13 +183,22 @@ def load_sequence_csv(
     split_arr = np.asarray(splits) if splits else None
     source_group_arr = np.asarray(source_groups, dtype=str) if source_groups else None
     return SequenceData(
-        X=np.stack(flows).astype("float32"),
+        X=np.concatenate(flows).astype("float32", copy=False),
         y=y.astype("int64"),
         splits=split_arr,
         source_groups=source_group_arr,
         feature_cols=feature_cols,
         label_encoder=label_encoder,
     )
+
+
+@lru_cache(maxsize=1)
+def _cached_sequences(path: str, seq_len: int, features, unknown_label: str,
+                      mtime_ns: int, file_size: int) -> SequenceData:
+    # One original dataset in RAM; never persist a second candidate CSV.
+    return load_sequence_csv(path, seq_len=seq_len,
+                             feature_cols=list(features) if features else None,
+                             unknown_label=unknown_label)
 
 
 def _split_by_column(data: SequenceData):
@@ -213,23 +237,31 @@ def make_loaders(
     seq_len: int = 30,
     feature_cols: list[str] | None = None,
     batch_size: int = 256,
+    eval_batch_size: int | None = None,
     test_size: float = 0.2,
     val_size: float = 0.1,
-    seed: int = 42,
+    seed: int = 599,
     num_workers: int = 0,
     unknown_label: str = "unknown",
     allow_random_split: bool = False,
     train_unknown: bool = True,
 ):
-    data = load_sequence_csv(csv_path, seq_len=seq_len, feature_cols=feature_cols, unknown_label=unknown_label)
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if eval_batch_size is None:
+        eval_batch_size = batch_size
+    if eval_batch_size <= 0:
+        raise ValueError("eval_batch_size must be positive")
+    resolved = Path(csv_path).resolve()
+    stat = resolved.stat()
+    data = _cached_sequences(str(resolved), seq_len, tuple(feature_cols) if feature_cols else None,
+                             unknown_label, stat.st_mtime_ns, stat.st_size)
     split = _split_by_column(data)
     if split is None:
         if not allow_random_split:
             raise ValueError("Processed CSV must contain non-empty train, val and test split columns")
         raise ValueError("Random splitting is intentionally disabled for the temporal benchmark")
     X_train, y_train, train_groups, X_val, y_val, val_groups, X_test, y_test, test_groups = split
-    (X_train, X_val, X_test), scaler = _scale_from_train(X_train, X_val, X_test)
-
     # Closed-set baselines learn only the known application classes. Unknown
     # flows remain in validation/test so their rejection performance can be
     # measured, but they must not contribute to the training loss.
@@ -237,6 +269,15 @@ def make_loaders(
         (index for index, name in enumerate(data.label_encoder.classes_) if str(name) == str(unknown_label)),
         None,
     )
+    # Use the same known-training-only scaler for open and closed runs.
+    # Unknown support cannot affect baseline preprocessing or validation.
+    scaler = StandardScaler()
+    fit_mask = y_train != unknown_index if unknown_index is not None else np.ones(len(y_train), dtype=bool)
+    scaler.fit(X_train[fit_mask].reshape(-1, X_train.shape[-1]))
+    X_train, X_val, X_test = [
+        scaler.transform(values.reshape(-1, values.shape[-1])).astype("float32").reshape(values.shape)
+        for values in (X_train, X_val, X_test)
+    ]
     output_classes = int(len(data.label_encoder.classes_))
     if not train_unknown and unknown_index is not None:
         known_mask = y_train != int(unknown_index)
@@ -259,14 +300,14 @@ def make_loaders(
         ),
         "val": DataLoader(
             TrafficSeqDataset(X_val, y_val),
-            batch_size=batch_size,
+            batch_size=eval_batch_size,
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
         ),
         "test": DataLoader(
             TrafficSeqDataset(X_test, y_test),
-            batch_size=batch_size,
+            batch_size=eval_batch_size,
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
@@ -278,6 +319,8 @@ def make_loaders(
         "unknown_label": str(unknown_label),
         "unknown_index": unknown_index,
         "train_unknown": bool(train_unknown),
+        "train_batch_size": int(batch_size),
+        "eval_batch_size": int(eval_batch_size),
         "feature_cols": data.feature_cols,
         "scaler": scaler,
         "train_source_groups": train_groups,

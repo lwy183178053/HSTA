@@ -1,40 +1,24 @@
-# 当前实验范围
+# 当前正式实验范围
 
-## 固定设置
+只保留 TLS22-S、QUIC22-S 各 60 已知类加 unknown 的一份最终数据。每已知类训练/验证/测试上限 10000/2000/2000；真实 unknown 目标为实际已知数量的 30%，噪声为 10%，不足以 actual 为准。
 
-- 数据集：CESNET-TLS22-S、CESNET-QUIC22-S；
-- 类别：每个数据集 40 个已知类，开放模型加 1 个 `unknown`（41 类）；
-- 输入：前 30 个包、3 个特征、形状 `[30, 3]`；
-- 采样：`small=200/40/40`、`medium=2000/400/400`、`large=20000/4000/4000`（训练/验证/测试每类上限）；
-- unknown：真实未知流量按应用来源均衡，目标为同一 split 已知流量的 50%；合成噪声目标为已知流量的 10%，并使用三套互斥的生成族；
-- 随机种子：`599`；
-- 隐藏维度：所有 HSTA-CM 分支和 Mamba 配置为 256；
-- 训练：最多 100 轮，patience 15，按验证集已知 Macro-F1 调度和早停。
+## 运行矩阵
 
-## 主比较
+| 组别 | 设置 | seed | 训练次数 |
+| --- | --- | --- | ---: |
+| 主比较 | HSTA-CM-open、HSTA-CM-closed、30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN | 599、5009、813 | 42 |
+| 消融 | no_conv-open、no_mamba-open、no_attention-open | 599、5009、813 | 18 |
 
-每个数据集运行 HSTA-CM-open、HSTA-CM-closed 和五个闭集适配基线：30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN。open 训练 unknown 支持流量并输出 41 类；closed 和基线只训练 40 个已知类，测试时用已知验证流量校准拒识阈值。结构筛选选择 TLS 的三路 DFT 配置和 QUIC 的双路多尺度配置作为正式 HSTA-CM。TrafficAudio 内部的 BiGRU 保留，但独立 GRU 和 Transformer 不属于矩阵。
+42 和 18 是训练运行数，不是独立架构数量。正式训练目标有效优化器批次为 4096，验证/测试批次为 512；OOM 时用梯度累积，每个优化器更新仍覆盖 4096 个样本。若发生回退，含 BatchNorm 的模型会使用微批次统计量，实际微批次需结合结果解读。效率仅测完整主模型两个数据集的推理 batch 1、8、32；这里的 batch 是一次推理输入流量的数量。
 
-## 组件消融
+两数据集使用相同三路、三种编码、76 token、256 维架构。open/消融训练 unknown 支持和训练噪声；closed/五个基线不训练 unknown。TrafficAudio 内部 BiGRU 保留，不单独跑 GRU 或 Transformer。正式阶段不再搜索结构。
 
-组件消融配置保留用于后续完整实验；当前 small 结果阶段暂不运行：
+## 结果阅读
 
-- `no_conv-open`：移除 Conv1d 分支；
-- `no_mamba-open`：移除 Mamba 分支；
-- `no_attention-open`：移除 FlashAttention。
+raw 与 threshold 分开报告。closed raw 只能输出已知类，unknown F1 通常为 0；AUROC/AUPR 仍可评价其不确定性分数排序。closed threshold 可以拒识 unknown，比较它与 open 的效果用于判断显式 unknown 监督的收益。改善必须同时检查已知分类指标与误拒率，不能预设没有代价。
 
-消融保持 256 维、41 类输出、相同数据、unknown 来源和 seed 599，用于比较各组件对结果的影响；单 seed 结果不预设完整模型在每个数据集上都领先。
+三 seed 报单次值、mean±std、参数量、轮数、时间；推理效率记录延迟和吞吐。严格时间窗口可能导致部分类别不足，Macro-F1 结合各类支持数解释。真实 unknown 与测试噪声分层结果及 actual 数量必须保留，不预设主模型胜出。
 
-## 指标
+## 保存与后台运行
 
-raw argmax 和 threshold rejection 分开报告：已知 Accuracy/Macro-F1、unknown Precision/Recall/F1、AUROC、AUPR、已知误拒率、未知误判为已知比例、混合测试集 Accuracy/Macro-F1、参数量、训练轮数和运行时间。unknown 结果按 `unknown_test_heldout`、`noise_test` 分层统计。拒识阈值只由已知验证流量获得。
-
-TLS small 验证集存在少数类别样本不足，Macro-F1 需结合每类流量数阅读。单一 seed 只报告单次值，不填虚假的标准差。
-
-分层指标应同时报告 `unknown_test_heldout` 和 `noise_test`。实际数量受 50%/10% 预算和候选来源可用流量约束，必须以每份 manifest 和 audit 中的实际计数为准。
-
-## 输出和目录
-
-主结果写入 `results/compact_s`，消融写入 `results/hsta_cm_ablation_s`，效率写入 `results/efficiency_benchmark`。每个运行目录保存配置、训练曲线、最佳检查点、raw/threshold 指标、分类报告和逐样本来源信息；结果和检查点被 Git 忽略。`scripts/summarize_compact_results.py` 生成 `results/compact_s/compact_summary.csv`，用于快速比较六项核心指标。
-
-旧类别规模、旧宽度、`paper` 档、带 `_sampled` 后缀的历史缓存、单独 GRU/Transformer 和历史结果不属于当前范围。
+当前模型、五个基线、三项消融及必要导出/审计/训练/效率/汇总入口保留。旧数据规模、旧类别数、旧宽度、结构搜索结果移到仓库外归档，原始 H5 与映射保留。后台按序运行并写日志、状态、完成/失败标记；确认启动成功后停止主动检查，用户询问时再读取。

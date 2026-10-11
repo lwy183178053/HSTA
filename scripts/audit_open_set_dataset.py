@@ -11,12 +11,24 @@ from pathlib import Path
 
 REQUIRED = {
     "flow_id", "label", "split", "pkt_index", "size", "direction", "delta_time",
-    "source_group", "original_app", "noise_family",
+    "source", "source_group", "original_app", "noise_family", "capture_date", "source_flow_id",
 }
-def audit(path: Path, expected_known: int = 40) -> dict:
+DATE_SPLITS = {
+    "tls": {
+        "train": {f"202110{day:02d}" for day in range(4, 11)},
+        "val": {"20211011"},
+        "test": {f"202110{day:02d}" for day in range(12, 18)},
+    },
+    "quic": {
+        "train": {"20221031"} | {f"202211{day:02d}" for day in range(1, 14)},
+        "val": {"20221114", "20221115"},
+        "test": {f"202211{day:02d}" for day in range(16, 28)},
+    },
+}
+def audit(path: Path, expected_known: int = 60) -> dict:
     """Validate an open-set export and its provenance metadata.
 
-    ``expected_known`` defaults to the active 40-class protocol.
+    ``expected_known`` defaults to the active 60-class protocol.
     Other protocols can pass their actual number of known classes explicitly.
     """
     if expected_known < 1:
@@ -27,6 +39,11 @@ def audit(path: Path, expected_known: int = 40) -> dict:
     noise_families: dict[str, set[str]] = defaultdict(set)
     labels: set[str] = set()
     packet_rows = 0
+    flow_packet_counts: dict[str, int] = defaultdict(int)
+    flow_dates: dict[str, str] = {}
+    source_ids: dict[str, str] = {}
+    source_ids_by_split: dict[str, dict[str, str]] = defaultdict(dict)
+    dataset_name = "quic" if "quic" in path.name.lower() else "tls"
     with path.open("r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         fields = set(reader.fieldnames or [])
@@ -37,12 +54,43 @@ def audit(path: Path, expected_known: int = 40) -> dict:
             packet_rows += 1
             flow_id = str(row["flow_id"])
             split = str(row["split"]).lower()
+            if split not in {"train", "val", "test"}:
+                raise ValueError(f"invalid split {split!r}")
+            try:
+                for value in (row["size"], row["direction"], row["delta_time"]):
+                    if not (float(value) == float(value)):
+                        raise ValueError
+                packet_index = int(row["pkt_index"])
+            except (TypeError, ValueError):
+                raise ValueError(f"invalid numeric packet row for {flow_id}")
+            if not 0 <= packet_index < 30:
+                raise ValueError(f"pkt_index out of range: {packet_index}")
+            date = str(row.get("date", row.get("capture_date", "")))
+            is_synthetic = str(row.get("source", "")) == "synthetic_noise"
+            if not is_synthetic and date not in DATE_SPLITS[dataset_name][split]:
+                raise ValueError(f"capture_date {date!r} outside {dataset_name}/{split} window")
+            if is_synthetic and date:
+                raise ValueError("synthetic noise must not carry a capture date")
+            source_id = str(row.get("source_flow_id", ""))
+            if not source_id:
+                raise ValueError(f"missing source_flow_id for {flow_id}")
             label = str(row["label"])
             group = str(row.get("source_group", "") or "")
             app = str(row.get("original_app", "") or "")
             family = str(row.get("noise_family", "") or "")
             labels.add(label)
             split_flow_ids[split].add(flow_id)
+            flow_packet_counts[flow_id] += 1
+            if date:
+                flow_dates[flow_id] = date
+            previous_source_id = source_ids.get(flow_id)
+            if previous_source_id is not None and previous_source_id != source_id:
+                raise ValueError(f"flow {flow_id} has inconsistent source_flow_id")
+            source_ids[flow_id] = source_id
+            previous_flow_id = source_ids_by_split[split].get(source_id)
+            if previous_flow_id is not None and previous_flow_id != flow_id:
+                raise ValueError(f"duplicate source_flow_id within {split}: {source_id}")
+            source_ids_by_split[split][source_id] = flow_id
             first = flows.setdefault(flow_id, {"split": split, "label": label, "source_group": group, "original_app": app, "noise_family": family})
             if first != {"split": split, "label": label, "source_group": group, "original_app": app, "noise_family": family}:
                 raise ValueError(f"flow {flow_id} has inconsistent metadata")
@@ -51,19 +99,28 @@ def audit(path: Path, expected_known: int = 40) -> dict:
             if group.startswith("noise_"):
                 noise_families[split].add(family)
 
+    source_split_ids = {split: {source_ids[flow_id] for flow_id in ids} for split, ids in split_flow_ids.items()}
     intersections = {
         "flow_id_split_intersections": {
             f"{left}:{right}": sorted(split_flow_ids[left] & split_flow_ids[right])[:10]
             for left, right in (("train", "val"), ("train", "test"), ("val", "test"))
             if split_flow_ids[left] & split_flow_ids[right]
         },
+        "source_flow_id_split_intersections": {
+            f"{left}:{right}": sorted(source_split_ids[left] & source_split_ids[right])[:10]
+            for left, right in (("train", "val"), ("train", "test"), ("val", "test"))
+            if source_split_ids[left] & source_split_ids[right]
+        },
         "application_group_conflicts": {app: sorted(groups) for app, groups in app_groups.items() if len(groups) > 1},
     }
-    if intersections["flow_id_split_intersections"] or intersections["application_group_conflicts"]:
+    if intersections["flow_id_split_intersections"] or intersections["source_flow_id_split_intersections"] or intersections["application_group_conflicts"]:
         raise ValueError(json.dumps(intersections, ensure_ascii=False))
-    family_sets = [values for values in noise_families.values() if values]
-    if len(family_sets) != len({family for values in family_sets for family in values}):
+    family_sets = [noise_families.get(split, set()) for split in ("train", "val", "test")]
+    if any(left & right for i, left in enumerate(family_sets) for right in family_sets[i + 1:]):
         raise ValueError("noise_family is reused across train/val/test")
+    bad_lengths = {flow_id: count for flow_id, count in flow_packet_counts.items() if count != 30}
+    if bad_lengths:
+        raise ValueError(f"flows must contain exactly 30 packets: {list(bad_lengths.items())[:3]}")
 
     source_by_split = {
         split: sorted({flows[flow_id]["source_group"] for flow_id in flow_ids})
@@ -104,8 +161,8 @@ def main() -> None:
     parser.add_argument(
         "--expected-known",
         type=int,
-        default=40,
-        help="expected number of known labels (default: 40)",
+        default=60,
+        help="expected number of known labels (default: 60)",
     )
     args = parser.parse_args()
     result = audit(args.input_csv, expected_known=args.expected_known)

@@ -26,29 +26,15 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
     dropout = _float(cfg, "dropout", 0.1)
     depth = _int(cfg, "depth", 2)
     if model in {"hsta_cm", "hsta-cm"}:
-        kernel_schedule = cfg.get("conv_kernel_schedule")
-        dft_kernel_schedule = cfg.get("dft_conv_kernel_schedule")
         return HSTACM(
             input_dim, num_classes, dim=dim, depth=depth,
             heads=_int(cfg, "heads", 4), mlp_ratio=_int(cfg, "mlp_ratio", 4),
             dropout=dropout, d_state=_int(cfg, "d_state", 16),
             d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
-            max_len=_int(cfg, "max_len", seq_len), pooling=str(cfg.get("pooling", "mean")),
-            conv_kernel_size=_int(cfg, "conv_kernel_size", 3),
+            max_len=seq_len,
             use_conv=bool(cfg.get("use_conv", True)),
             use_mamba=bool(cfg.get("use_mamba", True)),
             use_attention=bool(cfg.get("use_attention", True)),
-            use_position=bool(cfg.get("use_position", True)),
-            conv_kernel_schedule=(tuple(int(k) for k in kernel_schedule) if kernel_schedule is not None else None),
-            dft_conv_kernel_schedule=(
-                tuple(int(k) for k in dft_kernel_schedule) if dft_kernel_schedule is not None else None
-            ),
-            use_dft=bool(cfg.get("use_dft", False)),
-            fusion_mode=str(cfg.get("fusion_mode", "aligned")),
-            use_packet_position=bool(cfg.get("use_packet_position", False)),
-            use_frequency_position=bool(cfg.get("use_frequency_position", False)),
-            use_branch_type=bool(cfg.get("use_branch_type", False)),
-            input_max_len=seq_len,
         )
     if model in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
         return PktTCNetAdapted(

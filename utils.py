@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 
-def seed_everything(seed: int = 42):
+def seed_everything(seed: int = 599):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

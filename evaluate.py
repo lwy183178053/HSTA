@@ -32,8 +32,10 @@ def main():
         cfg["data_csv"],
         seq_len=int(cfg.get("seq_len", 30)),
         batch_size=int(cfg.get("batch_size", 256)),
-        seed=int(cfg.get("seed", 42)),
+        eval_batch_size=int(cfg.get("eval_batch_size", min(int(cfg.get("batch_size", 256)), 512))),
+        seed=int(cfg.get("seed", 599)),
         num_workers=int(cfg.get("num_workers", 0)),
+        train_unknown=bool(cfg.get("train_unknown", True)),
     )
     model = build_model(
         cfg["model"],
@@ -45,6 +47,13 @@ def main():
     state = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
     load_model_state(model, state, context=str(args.checkpoint))
     use_amp = bool(cfg.get("amp", True)) and str(device).startswith("cuda")
+    reject_threshold = checkpoint.get("reject_threshold") if isinstance(checkpoint, dict) else None
+    if reject_threshold is None:
+        metrics_path = Path(args.checkpoint).with_name("metrics.json")
+        if metrics_path.exists():
+            import json
+            with metrics_path.open(encoding="utf-8") as handle:
+                reject_threshold = json.load(handle).get("reject_threshold")
     metrics, _, _ = eval_model(
         model,
         loaders[args.split],
@@ -52,8 +61,15 @@ def main():
         amp=use_amp,
         unknown_index=loaders.get("unknown_index"),
         classes=loaders.get("classes"),
+        reject_threshold=reject_threshold,
+        source_groups=loaders.get(f"{args.split}_source_groups"),
     )
-    payload = {"split": args.split, "metrics": metrics, "checkpoint": str(Path(args.checkpoint).resolve())}
+    payload = {
+        "split": args.split,
+        "metrics": metrics,
+        "reject_threshold": reject_threshold,
+        "checkpoint": str(Path(args.checkpoint).resolve()),
+    }
     print(payload)
     if args.out:
         save_json(payload, args.out)

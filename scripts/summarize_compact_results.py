@@ -1,4 +1,4 @@
-"""汇总当前 40 类 small 实验的核心指标。
+"""汇总当前 60 类正式实验的核心指标。
 
 ``all_results.csv`` 保留完整运行的精简字段；每个运行目录中的
 ``metrics.json`` 仍是 raw argmax 和 threshold rejection 的审计来源。
@@ -25,36 +25,24 @@ METRICS = {
     "open_set_macro_f1": "test_threshold_open_set_macro_f1",
 }
 
-LEGACY_FIELDS = {
-    "known_accuracy": "test_known_accuracy",
-    "known_macro_f1": "test_known_macro_f1",
-    "unknown_precision": "test_unknown_precision",
-    "unknown_recall": "test_unknown_recall",
-    "unknown_f1": "test_unknown_f1",
-    "unknown_auroc": "test_unknown_auroc",
-    "unknown_aupr": "test_unknown_aupr",
-    "known_false_unknown": "test_known_false_unknown_rate",
-    "unknown_false_known": "test_unknown_false_known_rate",
-    "open_set_accuracy": "test_open_set_accuracy",
-    "open_set_macro_f1": "test_open_set_macro_f1",
-}
-
-
 def _metric_columns(frame: pd.DataFrame) -> dict[str, str]:
     selected: dict[str, str] = {}
-    for label, current in METRICS.items():
-        if current in frame.columns:
-            selected[label] = current
-        elif LEGACY_FIELDS[label] in frame.columns:
-            selected[label] = LEGACY_FIELDS[label]
+    for view in ("raw", "threshold"):
+        for label, current in METRICS.items():
+            column = current.replace("test_threshold_", f"test_{view}_")
+            if column in frame.columns:
+                selected[f"{view}_{label}"] = column
     return selected
 
 
 def main() -> None:
-    path = Path("results/compact_s/all_results.csv")
+    path = Path("results/formal60/all_results.csv")
+    ablation_path = Path("results/hsta_cm_ablation_formal60/all_results.csv")
     if not path.exists():
         raise FileNotFoundError(f"缺少 {path}，请先运行 scripts/run_wsl_experiments.sh main")
     frame = pd.read_csv(path)
+    if ablation_path.exists():
+        frame = pd.concat([frame, pd.read_csv(ablation_path)], ignore_index=True, sort=False)
 
     names = {
         "hsta-cm": "HSTA-CM",
@@ -76,7 +64,7 @@ def main() -> None:
     frame["variant"] = "closed"
     frame.loc[exp.str.contains("open", case=False), "variant"] = "open"
     frame.loc[exp.str.contains("no_conv|no_mamba|no_attention", case=False, regex=True), "variant"] = "ablation"
-    frame["dataset"] = exp.str.extract(r"((?:tls|quic)40_s)", expand=False).fillna("")
+    frame["dataset"] = exp.str.extract(r"((?:tls|quic)60)", expand=False).fillna("")
     frame["seed"] = pd.to_numeric(frame.get("seed"), errors="coerce")
 
     selected = _metric_columns(frame)
@@ -104,11 +92,11 @@ def main() -> None:
 
     summary = pd.DataFrame(rows)
     if not summary.empty:
-        order = ["dataset", "variant", "open_set_macro_f1_mean"]
+        order = ["dataset", "variant", "threshold_open_set_macro_f1_mean"]
         sort_columns = [column for column in order if column in summary]
-        ascending = [column != "open_set_macro_f1_mean" for column in sort_columns]
+        ascending = [column != "threshold_open_set_macro_f1_mean" for column in sort_columns]
         summary = summary.sort_values(sort_columns, ascending=ascending)
-    output = path.with_name("compact_summary.csv")
+    output = path.with_name("formal60_summary.csv")
     summary.to_csv(output, index=False)
     print(f"已写入 {output}")
     print(summary.to_string(index=False))
