@@ -19,6 +19,8 @@
 
 open 和三项消融使用已知类别、unknown 支持流量和训练噪声训练，输出 61 类；closed 和五个基线只使用已知类别训练，输出 60 类。所有运行从第 1 轮开始，不复用旧 checkpoint。
 
+主模型为 Mamba、包关系图、DFT-CNN 三路 HSTA-CM。正式消融为 `no_mamba`、`no_gnn`、`no_dft`，每次只移除一个分支，保持其余结构与训练设置不变；`no_attention` 不纳入当前正式矩阵。当前仅运行五个基线，更新后的主模型及消融待基线完成后另行启动，不为已有结果更改模型身份。
+
 最大训练轮数为 100，patience 为 15；学习率调度和早停指标均为已知验证集 Macro-F1。目标有效优化器 batch 为 4096，验证/测试 batch 为 512。显存不足时按配置使用微批次和梯度累积，实际值写入日志和结果。
 
 阈值只用已知验证流量校准，未知验证和测试流量不参与阈值选择。open 使用显式 unknown 概率作为拒识分数；closed 和基线使用 `1 - max(known probability)`。raw argmax 与 threshold rejection 必须分别落盘。

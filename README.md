@@ -18,20 +18,22 @@
 主模型使用 256 维、76 个 token：
 
 1. **Mamba 时序分支**：原始包序列经过线性投影和两层残差 Mamba，输出 30 个 token。
-2. **原始包卷积分支**：沿 30 个包位置使用三个依次堆叠的残差 `Conv1d` 块，卷积核为 `1/3/5`，输出 30 个 token。
-3. **DFT 频域卷积分支**：沿包序列做 rFFT，保留实部和虚部得到 16 个频率 token，再沿频率轴使用独立的 `1/3/5` 残差 `Conv1d` 块。
+2. **包关系图分支**：每条流的包分别作为节点，使用带自环的相邻包关系和非相邻包特征相似关系，两层残差图消息传递分别聚合这两种关系，保留 30 个 token 位置。
+3. **频谱卷积分支**：沿包序列做 rFFT，保留实部和虚部得到 16 个频率 token，投影到 256 维后使用卷积核 `1/3` 的两层残差 `Conv1d`。
 
-三路来自同一份输入，属于不同的表示和归纳偏置，不能表述为三份独立采集信息。两条卷积分支参数独立，卷积轴分别是包位置和频率位置。`1/3/5` 是顺序残差块，不是三个并行分支。三路加入包位置、频率位置和分支类型编码，拼接后经过融合层、PyTorch FlashAttention、LayerNorm 和分类头。`HSTA-CM-open` 输出 61 类并训练 unknown；`HSTA-CM-closed` 输出 60 类，不使用 unknown 监督。
+三路来自同一份输入，分别建模包顺序、包间关系和频谱，不能称为三份独立采集信息。图仅在单条流内根据经已知训练流量 scaler 标准化的输入构建，不使用标签或其他流；补零包不参与构图和包分支池化。DFT 沿包序号计算，不能直接解释为真实时间的周期频率。三路分别做 LayerNorm，加入包位置编码（Mamba/GNN）、频率位置编码（DFT）和对应分支类型编码，拼接后经过融合层、单层 PyTorch FlashAttention、LayerNorm 和分类头。`HSTA-CM-open` 输出 61 类并训练 unknown；`HSTA-CM-closed` 输出 60 类，不使用 unknown 监督。新结构尚未训练，效果需要实验验证。
 
 ## 实验与运行
 
 主比较包含 HSTA-CM open/closed 和五个统一 `[30,3]` 输入的适配基线：30pktTCNET、NetMamba、SRViT、TrafficAudio、BPF-GNN。它们保留各自的建模思想，但不等同于原论文中的完整字节、音频、图或预训练管线。TrafficAudio 的内部 BiGRU 保留，不单独运行 GRU 或 Transformer。
 
 - 主比较：`2 个数据集 × 7 个模型设置 × 3 个 seed = 42` 次训练。
-- 消融：`no_conv`、`no_mamba`、`no_attention`，共 `2 × 3 × 3 = 18` 次训练。
+- 消融：`no_mamba`、`no_gnn`、`no_dft`，每项只移除对应分支，共 `2 × 3 × 3 = 18` 次训练；`no_attention` 仅为可选补充，不计入正式矩阵。
 - 效率：只测完整 HSTA-CM，推理 batch 为 `1/8/32`。
 
 训练最多 100 轮，patience 为 15，按已知验证集 Macro-F1 调度和早停。目标有效优化器 batch 为 4096，验证和测试 batch 为 512；显存不足时使用微批次和梯度累积，并记录实际微批次。raw argmax 与 threshold rejection 分开评估，拒识阈值只用已知验证流量校准。
+
+当前仅执行五个基线在两个数据集、三个 seed 上的 30 次训练。HSTA-CM 主模型、消融和效率任务暂不启动，待基线完成后再安排。当前 Git 保存的部分结果是进度快照，不代表完整三 seed 比较或新主模型结果。
 
 训练和 FlashAttention 使用 WSL Ubuntu-22.04 环境；数据导出由 Windows 原生进程执行：
 
@@ -51,11 +53,10 @@ bash scripts/run_wsl_experiments.sh efficiency
 bash scripts/run_wsl_experiments.sh all
 ```
 
-正式流水线让数据导出在 Windows 原生进程执行，以避免 WSL `/mnt/e` 的文件 I/O 开销；训练仍在 WSL 中执行。导出 worker 默认使用 CPU 感知并行（最多 8 个），可以按磁盘吞吐调小：
+正式流水线让数据导出在 Windows 原生进程执行，以避免 WSL `/mnt/e` 的文件 I/O 开销；训练仍在 WSL 中执行。Windows 入口默认使用 2 个导出 worker，可按磁盘吞吐调整：
 
 ```powershell
-$env:DATAZOO_WORKERS = '4'
-& .\scripts\run_formal_pipeline.ps1
+& .\scripts\run_formal_pipeline.ps1 -DatazooWorkers 4
 ```
 
 需要完全在 WSL 导出时，可以设置 `DATA_EXPORT_RUNTIME=wsl` 后直接运行 `bash scripts/run_formal_pipeline.sh`。GPU 不参与 H5 解码和 CSV 序列化，留给后续模型训练。
@@ -71,7 +72,8 @@ $env:DATAZOO_WORKERS = '4'
 | `train.py`、`evaluate.py` | 训练和评估入口 |
 | `run_experiments.py` | 多模型、多数据集、多 seed 批量运行 |
 | `scripts/` | 导出、审计、运行和结果汇总 |
-| `results/`、`logs/` | 本地生成的结果、checkpoint 和日志 |
+| `results/` | 数值指标、训练历史、运行配置与本地 checkpoint |
+| `logs/` | 本地运行日志和状态文件 |
 | `docs/` | 协议、架构、范围和复现说明 |
 
-数据、结果、日志、checkpoint 和原始 H5 不提交 Git；代码、配置、测试和文档提交。论文文件放在仓库外的 `E:\AllProject\流量分析python项目\paper`。
+代码、配置、测试、文档，以及轻量的数值结果、训练历史和运行配置（CSV/JSON/YAML/Markdown）提交 Git。数据、原始 H5、日志、checkpoint、预测明细和二进制产物不提交。运行中的结果快照需标明未完成状态。论文文件放在仓库外的 `E:\AllProject\流量分析python项目\paper`。

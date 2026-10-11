@@ -32,9 +32,11 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             dropout=dropout, d_state=_int(cfg, "d_state", 16),
             d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
             max_len=seq_len,
-            use_conv=bool(cfg.get("use_conv", True)),
             use_mamba=bool(cfg.get("use_mamba", True)),
+            use_gnn=bool(cfg.get("use_gnn", True)),
+            use_dft=bool(cfg.get("use_dft", True)),
             use_attention=bool(cfg.get("use_attention", True)),
+            graph_k=_int(cfg, "graph_k", 4),
         )
     if model in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
         return PktTCNetAdapted(

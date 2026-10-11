@@ -378,6 +378,8 @@ def train_one(cfg: dict):
         "mean": loaders["scaler"].mean_.astype(float).tolist(),
         "scale": loaders["scaler"].scale_.astype(float).tolist(),
     }
+    if hasattr(model, "set_input_scaler"):
+        model.set_input_scaler(loaders["scaler"].mean_, loaders["scaler"].scale_)
     adapted_note = str(getattr(model, "adapted_note", ""))
     if adapted_note:
         print(f"[model] {adapted_note}")

@@ -35,33 +35,33 @@ base:
     expand: 2
     attention_backend: flash
 experiments:
-  - exp_name: hsta_cm_no_conv_open_tls60
+  - exp_name: hsta_cm_no_gnn_open_tls60
     model: hsta-cm
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
-    model_cfg: {use_conv: false}
+    model_cfg: {use_gnn: false}
   - exp_name: hsta_cm_no_mamba_open_tls60
     model: hsta-cm
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_tls60
+  - exp_name: hsta_cm_no_dft_open_tls60
     model: hsta-cm
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: true
-    model_cfg: {use_attention: false}
-  - exp_name: hsta_cm_no_conv_open_quic60
+    model_cfg: {use_dft: false}
+  - exp_name: hsta_cm_no_gnn_open_quic60
     model: hsta-cm
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
-    model_cfg: {use_conv: false}
+    model_cfg: {use_gnn: false}
   - exp_name: hsta_cm_no_mamba_open_quic60
     model: hsta-cm
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_quic60
+  - exp_name: hsta_cm_no_dft_open_quic60
     model: hsta-cm
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: true
-    model_cfg: {use_attention: false}
+    model_cfg: {use_dft: false}

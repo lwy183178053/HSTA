@@ -1,6 +1,7 @@
 """正式模型及五个基线的 CUDA 前后向验收，并验证 HSTA 的 batch 4096。"""
 import json
 import sys
+import argparse
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
@@ -10,6 +11,18 @@ from models.flash_attention import FlashSelfAttention
 
 
 def main():
+    parser = argparse.ArgumentParser(description="CUDA model smoke test")
+    parser.add_argument(
+        "--batch-size", type=int, default=8,
+        help="batch used for the regular forward/backward checks (default: 8)",
+    )
+    parser.add_argument(
+        "--check-large-batch", action="store_true",
+        help="also run the optional batch-4096 HSTA check",
+    )
+    args = parser.parse_args()
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be positive")
     records = []
     for name, classes, cfg in [
         ("hsta-cm", 61, {}), ("hsta-cm", 60, {}),
@@ -19,9 +32,9 @@ def main():
     ]:
         model = build_model(name, 3, classes, 30, {"dim": 256, **cfg}).cuda().train()
         with torch.autocast("cuda", dtype=torch.float16):
-            out = model(torch.randn(8, 30, 3, device="cuda"))
-            loss = torch.nn.functional.cross_entropy(out, torch.arange(8, device="cuda"))
-        assert out.shape == (8, classes) and torch.isfinite(loss)
+            out = model(torch.randn(args.batch_size, 30, 3, device="cuda"))
+            loss = torch.nn.functional.cross_entropy(out, torch.arange(args.batch_size, device="cuda") % classes)
+        assert out.shape == (args.batch_size, classes) and torch.isfinite(loss)
         loss.backward()
         assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
         for module in model.modules():
@@ -29,9 +42,13 @@ def main():
                 assert module.actual_attention_backend == "flash"
         records.append({"model": name, "classes": classes,
                         "parameters": sum(p.numel() for p in model.parameters()),
-                        "tokens": getattr(model, "token_count", None), "batch_size": 8})
+                        "tokens": getattr(model, "token_count", None), "batch_size": args.batch_size})
         del model, out, loss
         torch.cuda.empty_cache()
+    if not args.check_large_batch:
+        print(json.dumps({"torch": torch.__version__, "mamba": mamba_ssm.__version__,
+                          "gpu": torch.cuda.get_device_name(), "passed": records}, ensure_ascii=False))
+        return
     model = build_model("hsta-cm", 3, 61, 30, {"dim": 256}).cuda().train()
     try:
         torch.cuda.reset_peak_memory_stats()

@@ -7,8 +7,38 @@ venv/
 .env
 .idea/
 
-# Local experiment outputs.
-results/
+# Local experiment outputs. Keep lightweight numeric summaries/history in Git
+# when explicitly generated; checkpoints and predictions remain local.
+results/*
+!results/formal60/
+!results/hsta_cm_ablation_formal60/
+!results/efficiency_benchmark/
+results/formal60/*
+results/hsta_cm_ablation_formal60/*
+results/efficiency_benchmark/*
+!results/formal60/*/
+!results/hsta_cm_ablation_formal60/*/
+!results/efficiency_benchmark/*/
+!results/formal60/*/summary.csv
+!results/formal60/*/all_results.csv
+!results/formal60/*/metrics.json
+!results/formal60/*/history.csv
+!results/formal60/all_results.csv
+!results/formal60/formal60_summary.csv
+!results/hsta_cm_ablation_formal60/*/summary.csv
+!results/hsta_cm_ablation_formal60/*/all_results.csv
+!results/hsta_cm_ablation_formal60/*/metrics.json
+!results/hsta_cm_ablation_formal60/*/history.csv
+!results/hsta_cm_ablation_formal60/all_results.csv
+!results/hsta_cm_ablation_formal60/formal60_summary.csv
+!results/efficiency_benchmark/benchmark_results.csv
+!results/efficiency_benchmark/benchmark_repeats.csv
+!results/efficiency_benchmark/core_model_efficiency.csv
+!results/efficiency_benchmark/summary.csv
+results/**/*.pt
+results/**/*.pth
+results/**/*.ckpt
+results/**/predictions*
 logs/
 tmp/
 .worktrees/

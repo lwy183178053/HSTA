@@ -31,3 +31,9 @@ def test_formal_matrix_and_single_dataset_per_protocol():
         else:
             assert all(r["train_unknown"] for r in runs)
             assert all(len(r["model_cfg"]) == 1 for r in runs)
+            assert {tuple(r["model_cfg"].items()) for r in runs} == {
+                (("use_mamba", False),), (("use_gnn", False),), (("use_dft", False),),
+            }
+            assert all("no_attention" not in r["exp_name"] for r in runs)
+            for branch in ("mamba", "gnn", "dft"):
+                assert sum(f"no_{branch}_open" in r["exp_name"] for r in runs) == 6
