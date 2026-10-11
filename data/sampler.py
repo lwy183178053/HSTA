@@ -426,6 +426,7 @@ def scan_processed_csv_counts(
             raise ValueError(f"{csv_path} does not contain label column: {label_col}")
         has_flow = flow_col in (reader.fieldnames or [])
         has_split = split_col in (reader.fieldnames or [])
+        has_packet_index = "pkt_index" in (reader.fieldnames or [])
 
         for row_index, row in enumerate(reader):
             label = str(row.get(label_col, "") or "")
@@ -436,10 +437,17 @@ def scan_processed_csv_counts(
             row_counts_by_split[split][label] += 1
             total_rows += 1
 
-            flow_id = str(row.get(flow_col, row_index) if has_flow else row_index)
-            if flow_id in seen_flows:
+            # Every exported flow has exactly one pkt_index=0 row.  Counting
+            # that row avoids retaining millions of flow IDs in memory while
+            # scanning the package-level CSV.  Keep the set fallback for
+            # legacy files without packet indices.
+            if has_packet_index and str(row.get("pkt_index", "")) != "0":
                 continue
-            seen_flows.add(flow_id)
+            flow_id = str(row.get(flow_col, row_index) if has_flow else row_index)
+            if not has_packet_index:
+                if flow_id in seen_flows:
+                    continue
+                seen_flows.add(flow_id)
             flow_counts_by_split[split][label] += 1
 
     return {
@@ -456,11 +464,16 @@ def scan_processed_source_counts(csv_path: str | Path) -> dict[str, dict[str, Co
     app_counts: dict[str, Counter] = defaultdict(Counter)
     seen: set[str] = set()
     with Path(csv_path).open("r", newline="", encoding="utf-8-sig") as handle:
-        for row in csv.DictReader(handle):
-            flow_id = str(row.get("flow_id", ""))
-            if not flow_id or flow_id in seen:
+        reader = csv.DictReader(handle)
+        has_packet_index = "pkt_index" in (reader.fieldnames or [])
+        for row in reader:
+            if has_packet_index and str(row.get("pkt_index", "")) != "0":
                 continue
-            seen.add(flow_id)
+            flow_id = str(row.get("flow_id", ""))
+            if not has_packet_index:
+                if not flow_id or flow_id in seen:
+                    continue
+                seen.add(flow_id)
             split = str(row.get("split", "all")).lower()
             source_group = str(row.get("source_group", row.get("source", "")) or "")
             original_app = str(row.get("original_app", "") or "")
@@ -1133,13 +1146,20 @@ def limit_real_unknown_ratio(csv_path: str | Path, ratio: float = 0.30, seed: in
         seen_flow: set[str] = set()
         reservoirs: dict[str, list[str]] = {app: [] for app in apps}
         with path.open("r", newline="", encoding="utf-8-sig") as handle:
-            for row in csv.DictReader(handle):
+            reader = csv.DictReader(handle)
+            has_packet_index = "pkt_index" in (reader.fieldnames or [])
+            for row in reader:
                 if str(row.get("split", "")).lower() != split or str(row.get("label", "")).lower() != UNKNOWN_LABEL:
+                    continue
+                if has_packet_index and str(row.get("pkt_index", "")) != "0":
                     continue
                 app = str(row.get("original_app", ""))
                 flow_id = str(row.get("flow_id", ""))
-                if flow_id not in seen_flow:
+                if not has_packet_index:
+                    if not flow_id or flow_id in seen_flow:
+                        continue
                     seen_flow.add(flow_id)
+                if has_packet_index or flow_id:
                     index = unknown_seen[app]
                     unknown_seen[app] += 1
                     quota = selected.get(app, 0)
@@ -1299,7 +1319,10 @@ def export_datazoo_open_set(
         "unknown_candidate_pool": unknown_pool,
         "unknown_candidate_pool_complete": bool(getattr(dataset, "_hsta_unknown_pool_complete", False)),
         "unknown_candidate_flow_count_by_split": {
-            split: int(sum(source_counts[split].values()) - sum(counts[split].get(label, 0) for label in classes))
+            split: int(sum(
+                source_counts["source_group"][split].get(group, 0)
+                for group in ("unknown_support", "unknown_val_heldout", "unknown_test_heldout")
+            ))
             for split in SPLITS
         },
         "unknown_application_groups": unknown_groups,

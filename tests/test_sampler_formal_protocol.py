@@ -1,6 +1,8 @@
 from data.sampler import (
     TEMPORAL_DATE_SPLITS,
     limit_real_unknown_ratio,
+    scan_processed_csv_counts,
+    scan_processed_source_counts,
     select_available_top_apps,
 )
 import csv
@@ -47,3 +49,32 @@ def test_unknown_budget_is_actual_and_keeps_whole_flows(tmp_path):
         rows = list(csv.DictReader(handle))
     for flow in {r["flow_id"] for r in rows}:
         assert sum(r["flow_id"] == flow for r in rows) == 30
+
+
+def test_processed_counts_use_packet_zero_as_flow_marker(tmp_path):
+    path = tmp_path / "counts.csv"
+    fields = ["flow_id", "label", "pkt_index", "split", "source_group", "original_app"]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for flow_id, label, group, app in (
+            ("known-1", "known", "known", "known-app"),
+            ("unknown-1", "unknown", "unknown_support", "other-app"),
+            ("noise-1", "unknown", "noise_train", "synthetic_noise::gaussian_iid_v1"),
+        ):
+            for packet_index in range(3):
+                writer.writerow({
+                    "flow_id": flow_id,
+                    "label": label,
+                    "pkt_index": packet_index,
+                    "split": "train",
+                    "source_group": group,
+                    "original_app": app,
+                })
+
+    counts = scan_processed_csv_counts(path)
+    sources = scan_processed_source_counts(path)
+
+    assert counts["flow_count_by_split"]["train"] == {"known": 1, "unknown": 2}
+    assert counts["packet_row_count_by_split"]["train"] == {"known": 3, "unknown": 6}
+    assert sources["source_group"]["train"] == {"known": 1, "unknown_support": 1, "noise_train": 1}

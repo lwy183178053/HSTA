@@ -5,12 +5,20 @@ cd "$ROOT"
 source /opt/traffic-mamba-venv/bin/activate
 export PYTHONUNBUFFERED=1
 mkdir -p logs data/processed
+# Keep the full traceback from export/training stages in one place.  The
+# caller may redirect this script to the background, so stdout alone is not
+# sufficient for diagnosing a failed long-running stage.
+exec > >(tee -a logs/formal_pipeline.log) 2>&1
 exec 9>logs/formal_pipeline.lock
 flock -n 9 || { echo "正式队列已在运行" >&2; exit 1; }
 status=logs/formal_pipeline.status
 stage=starting
 update() { stage="$1"; printf "%s %s\n" "$(date -u +%FT%TZ)" "$stage" > "$status"; }
-failed() { local code=$?; printf "%s failed:%s exit:%s\n" "$(date -u +%FT%TZ)" "$stage" "$code" > "$status"; exit "$code"; }
+failed() {
+  local code=$?
+  printf "%s failed:%s exit:%s command:%s\n" "$(date -u +%FT%TZ)" "$stage" "$code" "$BASH_COMMAND" | tee "$status" >&2
+  exit "$code"
+}
 trap failed ERR
 update acceptance
 python -m pytest -q
@@ -19,7 +27,10 @@ for dataset in tls quic; do
   update "export_${dataset}"
   python -m data.preprocess --dataset "$dataset" --size S --topk 60 \
     --max-train-per-class 10000 --max-val-per-class 2000 --max-test-per-class 2000 \
-    --noise-ratio 0.10 --out-csv "data/processed/datazoo_${dataset}60_s_protocol.csv"
+    --noise-ratio 0.10 --datazoo-workers "${DATAZOO_WORKERS:-2}" \
+    --datazoo-batch-size "${DATAZOO_BATCH_SIZE:-2048}" \
+    --datazoo-test-batch-size "${DATAZOO_TEST_BATCH_SIZE:-2048}" \
+    --out-csv "data/processed/datazoo_${dataset}60_s_protocol.csv"
   update "audit_${dataset}"
   python scripts/audit_open_set_dataset.py --input-csv "data/processed/datazoo_${dataset}60_s_protocol.csv" --expected-known 60
 done
