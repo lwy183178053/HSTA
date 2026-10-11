@@ -23,20 +23,14 @@ trap failed ERR
 update acceptance
 python -m pytest -q
 python scripts/smoke_cuda.py
-update export
-if [[ "${DATA_EXPORT_RUNTIME:-windows}" == "windows" ]]; then
-  # H5 and CSV work is substantially faster in the native Windows process
-  # than through WSL's /mnt/e bridge. Training remains in this WSL script.
-  windows_root="$(wslpath -w "$ROOT")"
-  powershell.exe -NoProfile -ExecutionPolicy Bypass \
-    -File "$(wslpath -w "$ROOT/scripts/export_formal_windows.ps1")" \
-    -ProjectRoot "$windows_root" \
-    -DatazooWorkers "${DATAZOO_WORKERS:-auto}" \
-    -DatazooBatchSize "${DATAZOO_BATCH_SIZE:-2048}" \
-    -DatazooTestBatchSize "${DATAZOO_TEST_BATCH_SIZE:-2048}" \
-    -TopK 60 -MaxTrainPerClass 10000 -MaxValPerClass 2000 -MaxTestPerClass 2000 \
-    -NoiseRatio 0.10 -UnknownRatio 0.30
+if [[ "${SKIP_DATA_EXPORT:-0}" == "1" ]]; then
+  update export_skipped
 else
+  update export
+  if [[ "${DATA_EXPORT_RUNTIME:-wsl}" == "windows" ]]; then
+    echo "Windows export must be launched from the host PowerShell wrapper: scripts/run_formal_pipeline.ps1" >&2
+    exit 2
+  fi
   for dataset in tls quic; do
     update "export_${dataset}"
     python -m data.preprocess --dataset "$dataset" --size S --topk 60 \

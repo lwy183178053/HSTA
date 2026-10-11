@@ -33,10 +33,11 @@
 
 训练最多 100 轮，patience 为 15，按已知验证集 Macro-F1 调度和早停。目标有效优化器 batch 为 4096，验证和测试 batch 为 512；显存不足时使用微批次和梯度累积，并记录实际微批次。raw argmax 与 threshold rejection 分开评估，拒识阈值只用已知验证流量校准。
 
-训练和 FlashAttention 使用 WSL Ubuntu-22.04 环境：
+训练和 FlashAttention 使用 WSL Ubuntu-22.04 环境；数据导出由 Windows 原生进程执行：
 
 ```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && bash scripts/run_formal_pipeline.sh"
+Set-Location E:\AllProject\流量分析python项目\HSTA
+& .\scripts\run_formal_pipeline.ps1
 ```
 
 数据已经导出并通过审计后，也可以单独运行：
@@ -48,14 +49,14 @@ bash scripts/run_wsl_experiments.sh efficiency
 bash scripts/run_wsl_experiments.sh all
 ```
 
-正式流水线默认让数据导出在 Windows 原生进程执行，以避免 WSL `/mnt/e` 的文件 I/O 开销；训练仍在 WSL 中执行。导出 worker 默认使用 CPU 感知并行（最多 8 个），可以按磁盘吞吐调小：
+正式流水线让数据导出在 Windows 原生进程执行，以避免 WSL `/mnt/e` 的文件 I/O 开销；训练仍在 WSL 中执行。导出 worker 默认使用 CPU 感知并行（最多 8 个），可以按磁盘吞吐调小：
 
 ```powershell
 $env:DATAZOO_WORKERS = '4'
-wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && bash scripts/run_formal_pipeline.sh"
+& .\scripts\run_formal_pipeline.ps1
 ```
 
-需要完全在 WSL 导出时设置 `DATA_EXPORT_RUNTIME=wsl`。GPU 不参与 H5 解码和 CSV 序列化，留给后续模型训练。
+需要完全在 WSL 导出时，可以设置 `DATA_EXPORT_RUNTIME=wsl` 后直接运行 `bash scripts/run_formal_pipeline.sh`。GPU 不参与 H5 解码和 CSV 序列化，留给后续模型训练。
 
 ## 目录
 
