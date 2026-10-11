@@ -1,9 +1,23 @@
-from data.sampler import TEMPORAL_DATE_SPLITS, global_training_top_apps, limit_real_unknown_ratio
+from data.sampler import (
+    TEMPORAL_DATE_SPLITS,
+    limit_real_unknown_ratio,
+    select_available_top_apps,
+)
 import csv
 
 
 def test_quic_windows_are_14_2_12_days():
     assert tuple(map(len, (TEMPORAL_DATE_SPLITS["quic"][x] for x in ("train", "val", "test")))) == (14, 2, 12)
+
+
+def test_top_apps_are_restricted_to_available_classes_but_keep_heldout_apps():
+    counts = {"known-a": 100, "known-b": 80, "heldout-only": 0, "not-in-s": 1000}
+    available = {"known-a", "known-b", "heldout-only", "default-background"}
+
+    known, unknown = select_available_top_apps(counts, available, topk=2)
+
+    assert known == ["known-a", "known-b"]
+    assert unknown == ["heldout-only"]
 
 
 def test_unknown_budget_is_actual_and_keeps_whole_flows(tmp_path):

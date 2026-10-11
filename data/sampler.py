@@ -36,9 +36,33 @@ def _imports():
     return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach, DataLoaderOrder
 
 
+def select_available_top_apps(
+    counts: Counter[str] | dict[str, int],
+    available_classes: list[str] | set[str],
+    topk: int,
+) -> tuple[list[str], list[str]]:
+    """Select observed top classes and keep every available non-background remainder."""
+    available = {
+        str(name) for name in available_classes
+        if not str(name).endswith("-background")
+    }
+    ordered = [
+        name for name, _ in sorted(
+            ((name, count) for name, count in counts.items() if name in available),
+            key=lambda item: (-item[1], item[0]),
+        )
+    ]
+    known = ordered[:int(topk)]
+    unknown = sorted(available - set(known))
+    return known, unknown
+
+
 def global_training_top_apps(dataset_name: str, project_root: str | Path, size: str,
-                             dates: list[str], topk: int = 60) -> tuple[list[str], list[str], dict[str, int]]:
-    """Count APP IDs directly in the H5 training tables and select global top-k."""
+                             dates: list[str], topk: int = 60,
+                             available_classes: list[str] | set[str] | None = None) -> tuple[list[str], list[str], dict[str, int]]:
+    """Count training H5 APP IDs, restricted to the current DataZoo size classes."""
+    if available_classes is None:
+        raise ValueError("available_classes from the initialized DataZoo dataset is required")
     import tables
     CESNET_TLS22, CESNET_QUIC22, _, _, _, _ = _imports()
     cls = CESNET_TLS22 if dataset_name == "tls" else CESNET_QUIC22
@@ -58,10 +82,7 @@ def global_training_top_apps(dataset_name: str, project_root: str | Path, size: 
                 name = enum.get(int(app_id), str(app_id))
                 if not str(name).endswith("-background"):
                     counts[name] += int(count)
-    ordered = [name for name, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
-    known = ordered[:int(topk)]
-    all_apps = [name for name in enum.values() if not name.endswith("-background")]
-    unknown = sorted(set(all_apps) - set(known))
+    known, unknown = select_available_top_apps(counts, available_classes, topk)
     return known, unknown, dict(counts)
 
 
@@ -586,7 +607,7 @@ def build_dataset(
     selection_ranking: list[dict] = []
     if known_topk:
         global_known, global_unknown, global_counts = global_training_top_apps(
-            name, root, size, train_dates, int(known_topk)
+            name, root, size, train_dates, int(known_topk), dataset.available_classes
         )
         selection_ranking = [{"application": app, "count": global_counts.get(app, 0)}
                              for app in global_known]
