@@ -27,7 +27,7 @@ for dataset in tls quic; do
   update "export_${dataset}"
   python -m data.preprocess --dataset "$dataset" --size S --topk 60 \
     --max-train-per-class 10000 --max-val-per-class 2000 --max-test-per-class 2000 \
-    --noise-ratio 0.10 --datazoo-workers "${DATAZOO_WORKERS:-2}" \
+    --noise-ratio 0.10 --datazoo-workers "${DATAZOO_WORKERS:-auto}" \
     --datazoo-batch-size "${DATAZOO_BATCH_SIZE:-2048}" \
     --datazoo-test-batch-size "${DATAZOO_TEST_BATCH_SIZE:-2048}" \
     --out-csv "data/processed/datazoo_${dataset}60_s_protocol.csv"
