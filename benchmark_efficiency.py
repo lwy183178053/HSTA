@@ -416,8 +416,10 @@ def _variant_from_exp_name(exp_name: str) -> str:
         return "ablation_attention_middle"
     if exp_name.startswith("ablation_attention_front"):
         return "ablation_attention_front"
-    if "no_conv" in exp_name:
-        return "no_conv"
+    if "no_gnn" in exp_name:
+        return "no_gnn"
+    if "no_dft" in exp_name:
+        return "no_dft"
     if "no_mamba" in exp_name:
         return "no_mamba"
     if "no_attention" in exp_name:

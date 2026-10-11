@@ -63,7 +63,7 @@ def main() -> None:
     exp = frame.get("exp_name", pd.Series("", index=frame.index)).astype(str)
     frame["variant"] = "closed"
     frame.loc[exp.str.contains("open", case=False), "variant"] = "open"
-    frame.loc[exp.str.contains("no_conv|no_mamba|no_attention", case=False, regex=True), "variant"] = "ablation"
+    frame.loc[exp.str.contains("no_mamba|no_gnn|no_dft|no_attention", case=False, regex=True), "variant"] = "ablation"
     frame["dataset"] = exp.str.extract(r"((?:tls|quic)60)", expand=False).fillna("")
     frame["seed"] = pd.to_numeric(frame.get("seed"), errors="coerce")
 
