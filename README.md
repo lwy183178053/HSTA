@@ -40,6 +40,8 @@ Set-Location E:\AllProject\流量分析python项目\HSTA
 & .\scripts\run_formal_pipeline.ps1
 ```
 
+该入口默认只导出和审计数据，不自动开始训练；确认训练环境后再加 `-RunTraining`。
+
 数据已经导出并通过审计后，也可以单独运行：
 
 ```bash

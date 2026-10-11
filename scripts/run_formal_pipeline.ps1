@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$DatazooWorkers = 'auto',
+    [string]$DatazooWorkers = '2',
     [int]$DatazooBatchSize = 2048,
-    [int]$DatazooTestBatchSize = 2048
+    [int]$DatazooTestBatchSize = 2048,
+    [switch]$RunTraining
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,8 +31,12 @@ if ($LASTEXITCODE -ne 0) {
 $drive = $root.Substring(0, 1).ToLowerInvariant()
 $rest = ($root.Substring(2) -replace '\\', '/')
 $wslRoot = "/mnt/$drive$rest"
-Write-Host "[$(Get-Date -Format o)] starting WSL acceptance and training"
-& wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRoot' && export SKIP_DATA_EXPORT=1 && bash scripts/run_formal_pipeline.sh"
-if ($LASTEXITCODE -ne 0) {
-    throw "WSL training pipeline failed with exit code $LASTEXITCODE"
+if ($RunTraining) {
+    Write-Host "[$(Get-Date -Format o)] starting WSL acceptance and training"
+    & wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRoot' && export SKIP_DATA_EXPORT=1 && bash scripts/run_formal_pipeline.sh"
+    if ($LASTEXITCODE -ne 0) {
+        throw "WSL training pipeline failed with exit code $LASTEXITCODE"
+    }
+} else {
+    Write-Host "[$(Get-Date -Format o)] data export and audit completed; training was not started"
 }
