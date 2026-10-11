@@ -48,6 +48,15 @@ bash scripts/run_wsl_experiments.sh efficiency
 bash scripts/run_wsl_experiments.sh all
 ```
 
+正式流水线默认让数据导出在 Windows 原生进程执行，以避免 WSL `/mnt/e` 的文件 I/O 开销；训练仍在 WSL 中执行。导出 worker 默认使用 CPU 感知并行（最多 8 个），可以按磁盘吞吐调小：
+
+```powershell
+$env:DATAZOO_WORKERS = '4'
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/流量分析python项目/HSTA && bash scripts/run_formal_pipeline.sh"
+```
+
+需要完全在 WSL 导出时设置 `DATA_EXPORT_RUNTIME=wsl`。GPU 不参与 H5 解码和 CSV 序列化，留给后续模型训练。
+
 ## 目录
 
 | 路径 | 用途 |
