@@ -43,33 +43,33 @@ base:
   reject_threshold_quantile: 0.95
 
 experiments:
-  - exp_name: hsta_cm_no_conv_open_tls60_s_seed599
-    data_csv: data/processed/datazoo_tls60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_conv_open_tls40_s_seed599
+    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_conv: false}
-  - exp_name: hsta_cm_no_mamba_open_tls60_s_seed599
-    data_csv: data/processed/datazoo_tls60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_mamba_open_tls40_s_seed599
+    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_tls60_s_seed599
-    data_csv: data/processed/datazoo_tls60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_attention_open_tls40_s_seed599
+    data_csv: data/processed/datazoo_tls40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_attention: false}
-  - exp_name: hsta_cm_no_conv_open_quic60_s_seed599
-    data_csv: data/processed/datazoo_quic60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_conv_open_quic40_s_seed599
+    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_conv: false}
-  - exp_name: hsta_cm_no_mamba_open_quic60_s_seed599
-    data_csv: data/processed/datazoo_quic60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_mamba_open_quic40_s_seed599
+    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_mamba: false}
-  - exp_name: hsta_cm_no_attention_open_quic60_s_seed599
-    data_csv: data/processed/datazoo_quic60_s_protocol_small_sampled.csv
+  - exp_name: hsta_cm_no_attention_open_quic40_s_seed599
+    data_csv: data/processed/datazoo_quic40_s_protocol_small.csv
     seed: 599
     train_unknown: true
     model_cfg: {use_attention: false}

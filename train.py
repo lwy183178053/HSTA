@@ -234,7 +234,7 @@ def _load_state_dict(path: Path, device):
 def load_model_state(model, state_dict: dict, context: str = "checkpoint"):
     """Load a checkpoint with the current model layout.
 
-    The active 60-class protocol starts every run from a fresh model.  Resume
+    The active 40-class protocol starts every run from a fresh model.  Resume
     checkpoints therefore must match the current architecture exactly; legacy
     parameters are intentionally not migrated or silently ignored.
     """

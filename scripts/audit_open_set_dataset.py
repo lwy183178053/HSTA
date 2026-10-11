@@ -13,10 +13,10 @@ REQUIRED = {
     "flow_id", "label", "split", "pkt_index", "size", "direction", "delta_time",
     "source_group", "original_app", "noise_family",
 }
-def audit(path: Path, expected_known: int = 60) -> dict:
+def audit(path: Path, expected_known: int = 40) -> dict:
     """Validate an open-set export and its provenance metadata.
 
-    ``expected_known`` defaults to the active 60-class small protocol.
+    ``expected_known`` defaults to the active 40-class protocol.
     Other protocols can pass their actual number of known classes explicitly.
     """
     if expected_known < 1:
@@ -104,8 +104,8 @@ def main() -> None:
     parser.add_argument(
         "--expected-known",
         type=int,
-        default=60,
-        help="expected number of known labels (default: 60)",
+        default=40,
+        help="expected number of known labels (default: 40)",
     )
     args = parser.parse_args()
     result = audit(args.input_csv, expected_known=args.expected_known)

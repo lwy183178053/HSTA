@@ -35,18 +35,20 @@ def _imports():
     return CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach
 
 
-# The dates are disjoint and ordered.  This keeps validation genuinely
-# forward-looking instead of drawing it randomly from the training week.
+# The dates are disjoint and ordered.  The first complete week is used for
+# training, then the first day of the following week is validation and the
+# remaining six days are test.  This gives training the full first-week
+# history while keeping validation and test strictly forward-looking.
 TEMPORAL_DATE_SPLITS = {
     "tls": {
-        "train": ["20211004", "20211005", "20211006", "20211007", "20211008", "20211009"],
-        "val": ["20211010"],
-        "test": ["20211011", "20211012", "20211013", "20211014", "20211015", "20211016", "20211017"],
+        "train": ["20211004", "20211005", "20211006", "20211007", "20211008", "20211009", "20211010"],
+        "val": ["20211011"],
+        "test": ["20211012", "20211013", "20211014", "20211015", "20211016", "20211017"],
     },
     "quic": {
-        "train": ["20221031", "20221101", "20221102", "20221103", "20221104", "20221105"],
-        "val": ["20221106"],
-        "test": ["20221107", "20221108", "20221109", "20221110", "20221111", "20221112", "20221113"],
+        "train": ["20221031", "20221101", "20221102", "20221103", "20221104", "20221105", "20221106"],
+        "val": ["20221107"],
+        "test": ["20221108", "20221109", "20221110", "20221111", "20221112", "20221113"],
     },
 }
 UNKNOWN_LABEL = "unknown"
@@ -263,6 +265,35 @@ def _counter_dict(counter: Counter) -> dict[str, int]:
     return {str(key): int(counter[key]) for key in sorted(counter)}
 
 
+def _selection_ranking(dataset, selected_apps: list[str]) -> list[dict]:
+    """Return the train-count audit rows exposed by DataZoo after selection.
+
+    DataZoo applies the frequency sort and provider-group constraint internally.
+    ``known_app_counts`` contains the post-selection counts, so these rows are
+    intentionally labelled as the selected-set audit rather than a claim that
+    they are a strict global top-k ranking.
+    """
+    counts = getattr(dataset, "known_app_counts", None)
+    train_counts: dict[str, int] = {}
+    try:
+        if counts is not None and "Train" in counts.columns:
+            train_counts = {str(name): int(value) for name, value in counts["Train"].items()}
+    except Exception:
+        train_counts = {}
+    ordered = sorted(
+        (str(app) for app in selected_apps),
+        key=lambda app: (-train_counts.get(app, 0), app),
+    )
+    return [
+        {
+            "selected_rank": int(rank),
+            "application": app,
+            "train_flow_count": int(train_counts.get(app, 0)),
+        }
+        for rank, app in enumerate(ordered, start=1)
+    ]
+
+
 def _split_counter_dict(split_counters: dict[str, Counter]) -> dict[str, dict[str, int]]:
     return {split: _counter_dict(split_counters.get(split, Counter())) for split in sorted(split_counters)}
 
@@ -448,7 +479,7 @@ def build_dataset(
     batch_size: int = 64,
     test_batch_size: int = 64,
     workers: int = 0,
-    known_topk: int | None = 60,
+    known_topk: int | None = 40,
     unknown_count: int | None = None,
     unknown_split_seed: int = 599,
     temporal_split: bool = True,
@@ -471,8 +502,9 @@ def build_dataset(
     val_dates = dates["val"] if temporal_split else []
     test_dates = dates["test"] if temporal_split else []
     # DataZoo exposes one train week and one immediately following test week.
-    # Reserve the final day of the train week for validation so no flow is
-    # shared across the three temporal windows.
+    # Use the complete first week for training, then reserve the first day of
+    # the following week for validation and the remaining six days for test.
+    # The three windows are disjoint and strictly ordered.
     train_period = dataset.default_train_period_name
     test_period = dataset.default_test_period_name
 
@@ -481,7 +513,10 @@ def build_dataset(
             dataset=dataset,
             apps_selection=selection,
             train_period_name=train_period,
-            val_period_name=train_period,
+            # Validation now lives on the first day of the following period,
+            # alongside the explicit forward test dates below.  Keeping the
+            # period name aligned makes DataZoo caches and reports auditable.
+            val_period_name=test_period if temporal_split else "",
             test_period_name=test_period,
             train_dates=train_dates,
             val_dates=val_dates,
@@ -499,7 +534,10 @@ def build_dataset(
             train_workers=workers,
             val_workers=workers,
             test_workers=workers,
-            random_state=420,
+            # Keep both index construction and the train dataloader order
+            # deterministic for the formal protocol.
+            random_state=599,
+            train_dataloader_seed=599,
             # Keep application names in the batch labels.  Folding to the
             # DataZoo unknown index here would make identity-level isolation
             # impossible to audit during CSV export.
@@ -516,11 +554,13 @@ def build_dataset(
     # complete complement of the top-k known classes is retained as the
     # candidate unknown pool.  ``unknown_count`` is an optional debugging cap
     # only; the default and formal protocol use every candidate application.
+    selection_ranking: list[dict] = []
     if known_topk and unknown_count is not None:
         probe_cfg = config_for(dataset, AppSelection.TOPX_KNOWN, apps_selection_topx=int(known_topk))
         dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
         known_apps = [str(x) for x in dataset.class_info.known_apps]
         all_unknown_apps = [str(x) for x in dataset.class_info.unknown_apps]
+        selection_ranking = _selection_ranking(dataset, known_apps)
         unknown_apps = all_unknown_apps[: int(unknown_count)]
         if unknown_count > 0 and not unknown_apps:
             raise RuntimeError(f"No unknown applications available for {name} {size}")
@@ -548,6 +588,7 @@ def build_dataset(
         dataset.set_dataset_config_and_initialize(probe_cfg, disable_indices_cache=True)
         known_apps = [str(x) for x in dataset.class_info.known_apps]
         all_unknown_apps = [str(x) for x in dataset.class_info.unknown_apps]
+        selection_ranking = _selection_ranking(dataset, known_apps)
         unknown_apps = list(all_unknown_apps)
         unknown_groups = partition_unknown_apps(unknown_apps, seed=unknown_split_seed)
         train_support_apps = list(unknown_groups["unknown_support"])
@@ -572,6 +613,7 @@ def build_dataset(
     # Keep protocol exports from writing additional DataZoo index caches. The
     # configuration hash still isolates any existing generated cache.
     dataset.set_dataset_config_and_initialize(cfg, disable_indices_cache=True)
+    _include_validation_unknowns(dataset)
     # Keep the audit information attached to the object so export code does
     # not have to infer identities from the folded model labels.
     dataset._hsta_known_apps = list(known_apps or getattr(dataset.class_info, "known_apps", []))
@@ -579,7 +621,40 @@ def build_dataset(
     dataset._hsta_unknown_groups = unknown_groups
     dataset._hsta_unknown_source_map = unknown_application_source_map(unknown_groups)
     dataset._hsta_unknown_pool_complete = bool(candidate_pool_complete)
+    dataset._hsta_selection_ranking = selection_ranking
     return dataset, dataset_root
+
+
+def _include_validation_unknowns(dataset) -> int:
+    """Add DataZoo's validation unknown indices to its validation dataset.
+
+    CESNET-DataZoo exposes ``val_unknown_indices`` in ``dataset_indices`` but
+    currently constructs ``val_dataset`` from ``val_known_indices`` only. The
+    formal open-set export must include both portions. We update only the
+    already-initialized PyTablesDataset index array, preserving DataZoo's
+    transforms, scaler, and label behavior.
+    """
+    val_dataset = getattr(dataset, "val_dataset", None)
+    dataset_indices = getattr(dataset, "dataset_indices", None)
+    if val_dataset is None or dataset_indices is None:
+        return 0
+    known = getattr(dataset_indices, "val_known_indices", None)
+    unknown = getattr(dataset_indices, "val_unknown_indices", None)
+    if known is None or unknown is None:
+        return 0
+    if len(unknown) == 0:
+        return 0
+    from numpy.lib.recfunctions import repack_fields
+    from cesnet_datazoo.constants import INDICES_INDEX_FIELD, INDICES_TABLE_FIELD
+
+    combined = np.concatenate((known, unknown))
+    val_dataset.indices = repack_fields(combined[[INDICES_TABLE_FIELD, INDICES_INDEX_FIELD]])
+    # The loader is normally created lazily; clear it defensively if a caller
+    # requested it before this repair was applied.
+    if hasattr(dataset, "val_dataloader"):
+        dataset.val_dataloader = None
+    dataset._hsta_val_includes_unknown = True
+    return int(len(unknown))
 
 
 def get_loader(dataset, split: str):
@@ -713,7 +788,15 @@ def export_csv(
                     if label not in selected:
                         continue
                     source_key = (source_group, original_app) if label == UNKNOWN_LABEL else ("known", label)
-                    if split_cap and source_counts[split][source_key] >= split_cap:
+                    source_cap = split_cap
+                    # Real unknown applications are exported in full. Their
+                    # The 50% real-unknown budget is applied later by the temporal sampler,
+                    # with source-group round-robin balancing; applying a
+                    # per-application cap here could make that budget
+                    # impossible to satisfy.
+                    if label == UNKNOWN_LABEL:
+                        source_cap = None
+                    if source_cap and source_counts[split][source_key] >= source_cap:
                         continue
                     times, dirs, sizes = parse_ppi(ppi_one, seq_len)
                     if len(sizes) == 0:
@@ -753,14 +836,12 @@ def export_csv(
                 known_ready = bool(split_cap) and all(
                     source_counts[split][key] >= int(split_cap) for key in known_keys
                 )
-                # Some candidate applications have no flow in a date window.
-                # Require every candidate with an assigned role to be observed
-                # before stopping; absent candidates remain listed in the audit
-                # report without fabricating samples.
-                unknown_ready = split == "val" or all(
-                    source_counts[split][key] > 0 for key in expected_unknown
-                )
-                if split_cap and known_ready and (not expected_unknown or unknown_ready):
+                # When real unknown applications are configured, they may be
+                # ordered after all known flows in DataZoo's loader. Continue
+                # scanning that split so held-out applications are actually
+                # exported; the candidate list alone is not enough for a
+                # valid open-set test file.
+                if split_cap and known_ready and not expected_unknown:
                     break
                 if max_batches_per_split and batch_index + 1 >= max_batches_per_split:
                     break
@@ -772,7 +853,7 @@ def append_synthetic_unknown(
     seq_len: int = PPI_LEN,
     noise_per_split: dict[str, int] | None = None,
     noise_ratio: float = 0.05,
-    seed: int = 42,
+    seed: int = 599,
     noise_families: dict[str, str] | None = None,
 ) -> dict[str, int]:
     """Append deterministic synthetic unknown flows to an exported CSV.
@@ -788,7 +869,7 @@ def append_synthetic_unknown(
     noise_per_split = dict(noise_per_split or {})
     rng = np.random.default_rng(seed)
     noise_families = {**DEFAULT_NOISE_FAMILIES, **(noise_families or {})}
-    rows_by_split = Counter()
+    known_flows_by_split = Counter()
     reservoir: list[tuple[float, float, float]] = []
     reservoir_limit = 10000
     with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
@@ -808,7 +889,13 @@ def append_synthetic_unknown(
                             reservoir[replacement] = item
                 except (KeyError, TypeError, ValueError):
                     continue
-            rows_by_split[split] += 1
+            if (
+                split in {"train", "val", "test"}
+                and str(row.get("pkt_index", "")) == "0"
+                and str(row.get("label", "")).strip().lower()
+                not in {UNKNOWN_LABEL, "_unknown", "__unknown__"}
+            ):
+                known_flows_by_split[split] += 1
     if not reservoir:
         raise ValueError(f"No valid train rows found in {csv_path}")
     train_arr = np.asarray(reservoir, dtype=np.float32)
@@ -820,7 +907,7 @@ def append_synthetic_unknown(
         direction_values = np.asarray([0.0, 1.0], dtype=np.float32)
 
     default_counts = {
-        split: int(round(rows_by_split.get(split, 0) / max(seq_len, 1) * noise_ratio))
+        split: int(round(known_flows_by_split.get(split, 0) * noise_ratio))
         for split in ("train", "val", "test")
     }
     counts = {split: int(noise_per_split.get(split, default_counts[split])) for split in ("train", "val", "test")}
@@ -892,12 +979,12 @@ def export_datazoo_open_set(
     project_root: str | Path,
     out_csv: str | Path | None = None,
     seq_len: int = PPI_LEN,
-    topk: int = 60,
+    topk: int = 40,
     classes: list[str] | None = None,
     scan_batches: int = 300,
-    max_train_per_class: int | None = 10000,
-    max_val_per_class: int | None = 10000,
-    max_test_per_class: int | None = 10000,
+    max_train_per_class: int | None = 20000,
+    max_val_per_class: int | None = 20000,
+    max_test_per_class: int | None = 20000,
     init_train_size: int | str = "all",
     init_val_size: int | str = "all",
     init_test_size: int | str = "all",
@@ -907,7 +994,7 @@ def export_datazoo_open_set(
     unknown_count: int | None = None,
     unknown_split_seed: int = 599,
     noise_ratio: float = 0.05,
-    noise_seed: int = 42,
+    noise_seed: int = 599,
     temporal_split: bool = True,
     max_export_batches: int | None = None,
 ):
@@ -987,6 +1074,16 @@ def export_datazoo_open_set(
         "classes": report_classes,
         "unknown_label": UNKNOWN_LABEL if unknown_pool else "",
         "known_apps": [str(x) for x in getattr(dataset, "_hsta_known_apps", classes)],
+        "known_app_selection": {
+            "method": (
+                "DataZoo TOPX_KNOWN: training-frequency descending with provider-group constraint"
+                if topk
+                else "DataZoo ALL_KNOWN"
+            ),
+            "requested_topk": int(topk),
+            "selected_count": int(len(classes)),
+            "ranking": getattr(dataset, "_hsta_selection_ranking", []),
+        },
         "unknown_apps": unknown_pool,
         "unknown_candidate_pool": unknown_pool,
         "unknown_candidate_pool_complete": bool(getattr(dataset, "_hsta_unknown_pool_complete", False)),
@@ -995,6 +1092,19 @@ def export_datazoo_open_set(
         "synthetic_noise_flows_by_split": noise_counts,
         "synthetic_noise": getattr(append_synthetic_unknown, "last_metadata", {}),
         "temporal_split": bool(temporal_split),
+        # Keep the exact date lists in every export report so a sampled CSV
+        # can be audited without relying on the code version that produced it.
+        "temporal_date_splits": (
+            TEMPORAL_DATE_SPLITS.get(dataset_name, {}) if temporal_split else {}
+        ),
+        "temporal_window_lengths": (
+            {
+                split: len(values)
+                for split, values in TEMPORAL_DATE_SPLITS.get(dataset_name, {}).items()
+            }
+            if temporal_split
+            else {}
+        ),
         "scan_counter_top30": dict(scan_counter.most_common(30)),
         "flow_count_by_split": _split_counter_dict(counts),
         "packet_row_count_by_split": _split_counter_dict(packet_row_counts),

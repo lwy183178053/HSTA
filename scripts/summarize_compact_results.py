@@ -1,4 +1,4 @@
-"""汇总当前 60 类 small 实验的核心指标。
+"""汇总当前 40 类 small 实验的核心指标。
 
 ``all_results.csv`` 保留完整运行的精简字段；每个运行目录中的
 ``metrics.json`` 仍是 raw argmax 和 threshold rejection 的审计来源。
@@ -76,7 +76,7 @@ def main() -> None:
     frame["variant"] = "closed"
     frame.loc[exp.str.contains("open", case=False), "variant"] = "open"
     frame.loc[exp.str.contains("no_conv|no_mamba|no_attention", case=False, regex=True), "variant"] = "ablation"
-    frame["dataset"] = exp.str.extract(r"((?:tls|quic)60_s)", expand=False).fillna("")
+    frame["dataset"] = exp.str.extract(r"((?:tls|quic)40_s)", expand=False).fillna("")
     frame["seed"] = pd.to_numeric(frame.get("seed"), errors="coerce")
 
     selected = _metric_columns(frame)

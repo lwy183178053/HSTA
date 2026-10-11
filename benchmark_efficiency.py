@@ -34,7 +34,7 @@ CORE_MODELS = {
     "bpf_gnn",
     "bpf-gnn",
 }
-TASK_NAMES = ("tls60_s", "quic60_s")
+TASK_NAMES = ("tls40_s", "quic40_s")
 
 REPEATED_METRICS = [
     "latency_ms_mean",
@@ -735,7 +735,7 @@ def run(args) -> None:
         "- `benchmark_results.csv`：按实验和 batch size 汇总的延迟与 FLOPs。",
         "- `benchmark_repeats.csv`：每次重复测试的原始记录。",
         "- `summary.csv`：便于排序的完整模型效率表。",
-        "- `core_model_efficiency.csv`：TLS60-S 和 QUIC60-S 主任务的 seed599 核心/适配模型效率表。",
+        "- `core_model_efficiency.csv`：TLS40-S 和 QUIC40-S 主任务的 seed599 核心/适配模型效率表。",
         "- `benchmark_results.json`：完整元数据和 FLOPs 分解。",
         "",
         "FLOPs 约定：一次乘加计为 2 个 FLOPs，MACs 按 FLOPs / 2 计算。",

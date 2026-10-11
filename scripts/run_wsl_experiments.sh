@@ -9,8 +9,15 @@ export PYTHONUNBUFFERED=1
 mkdir -p logs
 
 case "$MODE" in
+  structure)
+    # Fast TLS40/QUIC40 HSTA-CM structure screen on small data. The winner is
+    # copied into compact_s.yaml before the formal baseline comparison.
+    python run_experiments.py \
+      --config configs/hsta_cm_structure_s.yaml \
+      --force --no-resume
+    ;;
   main)
-    # TLS60 和 QUIC60 的主比较，从第 1 轮开始，不复用旧结果。
+    # TLS40 和 QUIC40 的主比较，从第 1 轮开始，不复用旧结果。
     python run_experiments.py \
       --config configs/compact_s.yaml \
       --force --no-resume
@@ -30,7 +37,7 @@ case "$MODE" in
       --seed 599
     ;;
   *)
-    echo "Usage: $0 {main|ablation|efficiency}" >&2
+    echo "Usage: $0 {structure|main|ablation|efficiency}" >&2
     exit 2
     ;;
 esac

@@ -30,7 +30,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["tls", "quic"], default=None)
     parser.add_argument("--size", default="S", choices=["S", "M", "L"])
-    parser.add_argument("--topk", type=int, default=60, help="number of known classes selected by DataZoo training frequency")
+    parser.add_argument(
+        "--topk",
+        type=int,
+        default=40,
+        help="number of known classes selected by DataZoo training frequency (default: 40)",
+    )
     parser.add_argument(
         "--unknown-count",
         type=int,
@@ -39,13 +44,13 @@ def main():
     )
     parser.add_argument("--unknown-split-seed", type=int, default=599)
     parser.add_argument("--noise-ratio", type=float, default=0.05, help="synthetic unknown flows as a fraction of each split")
-    parser.add_argument("--noise-seed", type=int, default=42)
+    parser.add_argument("--noise-seed", type=int, default=599)
     parser.add_argument("--random-split", action="store_true", help="use DataZoo's random validation split instead of date windows")
     parser.add_argument("--classes", nargs="*", default=None)
     parser.add_argument("--scan-batches", type=int, default=100)
-    parser.add_argument("--max-train-per-class", type=int, default=10000)
-    parser.add_argument("--max-val-per-class", type=int, default=10000)
-    parser.add_argument("--max-test-per-class", type=int, default=10000)
+    parser.add_argument("--max-train-per-class", type=int, default=20000)
+    parser.add_argument("--max-val-per-class", type=int, default=20000)
+    parser.add_argument("--max-test-per-class", type=int, default=20000)
     parser.add_argument("--init-train-size", default="all")
     parser.add_argument("--init-val-size", default="all")
     parser.add_argument("--init-test-size", default="all")

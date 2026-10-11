@@ -13,8 +13,12 @@ import argparse
 import csv
 import hashlib
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from data.sampler import append_synthetic_unknown
 
 
 UNKNOWN_LABELS = {"unknown", "_unknown", "__unknown__"}
@@ -22,22 +26,37 @@ UNKNOWN_GROUP_COLUMNS = ("source_group", "original_app", "noise_family")
 
 
 PROFILES = {
-    "small": {"train": 100, "val": 20, "test": 20},
-    "medium": {"train": 1000, "val": 200, "test": 200},
-    "paper": {"train": 10000, "val": 1000, "test": 2000},
-    "large": {"train": 10000, "val": 2000, "test": 2000},
+    # The profile name describes the known-class train budget. Validation and
+    # test use the same per-class ratios; unknown rows have separate global budgets
+    # below and are never allowed to multiply with the number of applications.
+    "small": {"train": 200, "val": 40, "test": 40},
+    "medium": {"train": 2000, "val": 400, "test": 400},
+    "large": {"train": 20000, "val": 4000, "test": 4000},
 }
+
+NOISE_FAMILIES = {
+    "train": "gaussian_iid_v1",
+    "val": "shuffle_spike_v2",
+    "test": "mixture_burst_v3",
+}
+
+# Final open-set data protocol: real applications outside the known pool are
+# sampled at half the selected known-flow count, with an additional ten
+# percent of deterministic synthetic noise.  These values are shared by every
+# profile and are recorded in each manifest/report.
+REAL_UNKNOWN_RATIO = 0.50
+SYNTHETIC_NOISE_RATIO = 0.10
 
 TEMPORAL_WINDOWS = {
     "tls": {
-        "train": "W-2021-40 days 20211004-20211009",
-        "val": "W-2021-40 day 20211010",
-        "test": "W-2021-41 days 20211011-20211017",
+        "train": "W-2021-40 days 20211004-20211010 (7 days)",
+        "val": "W-2021-41 day 20211011",
+        "test": "W-2021-41 days 20211012-20211017 (6 days)",
     },
     "quic": {
-        "train": "W-2022-44 days 20221031-20221105",
-        "val": "W-2022-44 day 20221106",
-        "test": "W-2022-45 days 20221107-20221113",
+        "train": "W-2022-44 days 20221031-20221106 (7 days)",
+        "val": "W-2022-45 day 20221107",
+        "test": "W-2022-45 days 20221108-20221113 (6 days)",
     },
 }
 
@@ -111,6 +130,65 @@ def _group_name(key: tuple[str, str, str, str]) -> str:
     return "unknown:" + "|".join(parts)
 
 
+def _is_synthetic_unknown(group: tuple[str, str, str, str]) -> bool:
+    """Return whether an unknown provenance group is generated noise.
+
+    Exported synthetic rows carry at least one of these markers.  Keeping the
+    check at group level lets the sampler enforce separate real-unknown and
+    synthetic-noise budgets without inspecting packets again.
+    """
+
+    label, source_group, original_app, noise_family = group
+    if label != "unknown":
+        return False
+    source_group = source_group.lower()
+    original_app = original_app.lower()
+    return bool(
+        noise_family
+        or source_group.startswith("noise_")
+        or source_group == "synthetic"
+        or original_app.startswith("synthetic_noise::")
+    )
+
+
+def _balanced_unknown_ids(
+    groups: list[tuple[str, str, str, str]],
+    candidates: dict[tuple[str, tuple[str, str, str, str]], list[tuple[int, str]]],
+    split: str,
+    budget: int,
+) -> dict[tuple[str, tuple[str, str, str, str]], list[tuple[int, str]]]:
+    """Select up to ``budget`` flows by round-robin over provenance groups.
+
+    A round-robin pass gives each application/source group one flow before a
+    second pass begins, so a prolific unknown application cannot consume the
+    whole budget.  The deterministic rank order keeps repeated exports stable.
+    """
+
+    ordered_groups = sorted(groups, key=lambda group: _group_name(group))
+    values = {
+        group: sorted(candidates[(split, group)], key=lambda item: item[0])
+        for group in ordered_groups
+    }
+    pointers = {group: 0 for group in ordered_groups}
+    selected: dict[tuple[str, tuple[str, str, str, str]], list[tuple[int, str]]] = defaultdict(list)
+    remaining = max(0, int(budget))
+    while remaining and ordered_groups:
+        made_progress = False
+        for group in ordered_groups:
+            pointer = pointers[group]
+            if pointer >= len(values[group]):
+                continue
+            selected[(split, group)].append(values[group][pointer])
+            pointers[group] = pointer + 1
+            remaining -= 1
+            made_progress = True
+            if not remaining:
+                break
+        if not made_progress:
+            break
+    return selected
+
+
 def _select_ids(input_csv: Path, caps: dict[str, int], seed: int):
     candidates: dict[tuple[str, tuple[str, str, str, str]], list[tuple[int, str]]] = defaultdict(list)
     with input_csv.open("r", newline="", encoding="utf-8-sig") as handle:
@@ -118,6 +196,13 @@ def _select_ids(input_csv: Path, caps: dict[str, int], seed: int):
             first = rows[0]
             split = str(first["split"]).lower()
             group = _group_key(first)
+            # Source exports created by the previous protocol already contain
+            # synthetic noise.  It must not be sampled into a final profile:
+            # final noise is generated after known/real-unknown selection so
+            # its count is exactly the requested fraction of selected known
+            # flows rather than the fraction available in the source file.
+            if _is_synthetic_unknown(group):
+                continue
             if split not in caps:
                 continue
             candidates[(split, group)].append((_rank(seed, split, _group_name(group), flow_id), flow_id))
@@ -126,12 +211,49 @@ def _select_ids(input_csv: Path, caps: dict[str, int], seed: int):
     available = Counter()
     target = Counter()
     manifest_groups = []
+    selected_by_group: dict[tuple[str, tuple[str, str, str, str]], list[tuple[int, str]]] = defaultdict(list)
+
+    # Known classes retain the profile cap independently.  These counts are
+    # also the denominator for the two global unknown budgets.
+    known_counts_by_split = Counter()
     for (split, group), values in sorted(candidates.items(), key=lambda item: (item[0][0], item[0][1])):
+        if group[0] == "unknown":
+            continue
         values.sort(key=lambda item: item[0])
+        selected_values = values[: caps[split]]
+        selected_by_group[(split, group)] = selected_values
+        known_counts_by_split[split] += len(selected_values)
+
+    # Unknown applications and generated noise receive separate budgets.  The
+    # source groups are sampled round-robin so the budget is balanced by
+    # original application/source identity rather than pooled by the label.
+    budget_by_split = {}
+    noise_budget_by_split = {}
+    for split in caps:
+        unknown_groups = [
+            group
+            for (group_split, group) in candidates
+            if group_split == split and group[0] == "unknown" and not _is_synthetic_unknown(group)
+        ]
+        noise_groups = [
+            group
+            for (group_split, group) in candidates
+            if group_split == split and group[0] == "unknown" and _is_synthetic_unknown(group)
+        ]
+        real_available = sum(len(candidates[(split, group)]) for group in unknown_groups)
+        noise_available = sum(len(candidates[(split, group)]) for group in noise_groups)
+        real_budget = min(int(round(known_counts_by_split[split] * REAL_UNKNOWN_RATIO)), real_available)
+        noise_budget = min(int(round(known_counts_by_split[split] * SYNTHETIC_NOISE_RATIO)), noise_available)
+        budget_by_split[split] = real_budget
+        noise_budget_by_split[split] = noise_budget
+        selected_by_group.update(_balanced_unknown_ids(unknown_groups, candidates, split, real_budget))
+        selected_by_group.update(_balanced_unknown_ids(noise_groups, candidates, split, noise_budget))
+
+    for (split, group), values in sorted(candidates.items(), key=lambda item: (item[0][0], item[0][1])):
         group_name = _group_name(group)
         available[(split, group)] = len(values)
-        target[(split, group)] = min(caps[split], len(values))
-        selected_values = values[: caps[split]]
+        selected_values = selected_by_group.get((split, group), [])
+        target[(split, group)] = len(selected_values)
         selected.update(flow_id for _, flow_id in selected_values)
         manifest_groups.append(
             {
@@ -145,14 +267,14 @@ def _select_ids(input_csv: Path, caps: dict[str, int], seed: int):
                 "available_flows": len(values),
                 "target_flows": int(target[(split, group)]),
                 # Flow-level IDs are useful for auditing unknown provenance
-                # isolation. Omitting known-class IDs keeps paper manifests
+                # isolation. Omitting known-class IDs keeps sampling manifests
                 # compact while retaining deterministic counts for them.
                 "selected_flow_ids": [flow_id for _, flow_id in selected_values]
                 if group[0] == "unknown"
                 else [],
             }
         )
-    return selected, available, target, manifest_groups
+    return selected, available, target, manifest_groups, dict(budget_by_split), dict(noise_budget_by_split)
 
 
 def sample_dataset(
@@ -163,7 +285,14 @@ def sample_dataset(
     seed: int,
 ) -> dict:
     caps = PROFILES[profile]
-    selected, available, target, manifest_groups = _select_ids(input_csv, caps, seed)
+    (
+        selected,
+        available,
+        target,
+        manifest_groups,
+        unknown_budget_by_split,
+        noise_budget_by_split,
+    ) = _select_ids(input_csv, caps, seed)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     counts = Counter()
     group_counts = Counter()
@@ -190,6 +319,41 @@ def sample_dataset(
             counts[(split, label)] += 1
             group_counts[(split, group)] += 1
 
+    # Generate the final synthetic component only after known and real
+    # unknown flows have been selected.  This removes legacy synthetic rows
+    # from source exports and makes the 10% denominator auditable.
+    noise_counts = append_synthetic_unknown(
+        output_csv,
+        seq_len=30,
+        noise_ratio=SYNTHETIC_NOISE_RATIO,
+        seed=seed,
+    )
+    for split, flow_count in noise_counts.items():
+        counts[(split, "unknown")] += int(flow_count)
+        noise_group = (
+            "unknown",
+            f"noise_{split}",
+            f"synthetic_noise::{NOISE_FAMILIES[split]}",
+            NOISE_FAMILIES[split],
+        )
+        group_counts[(split, noise_group)] += int(flow_count)
+        packet_rows += int(flow_count) * 30
+
+    # The source export contains no final synthetic rows after selection, so
+    # the protocol budget must be reported from the selected known counts,
+    # alongside the actual generated count.  Reporting the source candidate
+    # count here would incorrectly show zero even when noise was generated.
+    noise_budget_actual_by_split = {
+        split: int(round(
+            sum(
+                counts[(split, label)]
+                for (count_split, label) in counts
+                if count_split == split and label != "unknown"
+            ) * SYNTHETIC_NOISE_RATIO
+        ))
+        for split in caps
+    }
+
     labels = sorted({label for split, label in counts})
     unknown_groups = [item for item in manifest_groups if item["unknown"]]
     available_by_label = Counter()
@@ -204,6 +368,16 @@ def sample_dataset(
         "output_csv": output_csv.as_posix(),
         "selection_seed": int(seed),
         "sampling_unit": "complete_flow",
+        "known_class_caps": caps,
+        "real_unknown_ratio": REAL_UNKNOWN_RATIO,
+        "synthetic_noise_ratio": SYNTHETIC_NOISE_RATIO,
+        "real_unknown_budget_by_split": unknown_budget_by_split,
+        "synthetic_noise_budget_by_split": {
+            split: noise_budget_actual_by_split[split]
+            for split in caps
+        },
+        "synthetic_noise_actual_by_split": noise_counts,
+        "synthetic_noise_families": dict(NOISE_FAMILIES),
         "grouping": {
             "known": "label",
             "unknown": list(UNKNOWN_GROUP_COLUMNS),
@@ -239,7 +413,12 @@ def sample_dataset(
         "selection_seed": int(seed),
         "sampling_unit": "complete_flow",
         "caps_per_class": caps,
-        "caps_per_group": caps,
+        "known_class_caps": caps,
+        "real_unknown_ratio": REAL_UNKNOWN_RATIO,
+        "synthetic_noise_ratio": SYNTHETIC_NOISE_RATIO,
+        "real_unknown_budget_by_split": unknown_budget_by_split,
+        "synthetic_noise_budget_by_split": noise_budget_actual_by_split,
+        "synthetic_noise_actual_by_split": noise_counts,
         "unknown_grouping": list(UNKNOWN_GROUP_COLUMNS),
         "unknown_group_fallback": "source, then unknown_unattributed",
         "sampling_manifest": manifest_path.as_posix(),

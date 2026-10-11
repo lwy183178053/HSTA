@@ -1,4 +1,4 @@
-"""Regression checks for the canonical 60-class small experiment scope."""
+"""Regression checks for the canonical 40-class experiment scope."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ def test_only_current_configs_remain():
     assert names == {
         "compact_s.yaml",
         "hsta_cm_ablation_s.yaml",
-        "hsta_cm_large_variants.yaml",
+        "hsta_cm_structure_s.yaml",
     }
 
 
-def test_compact_matrix_is_60_class_small_seed599():
+def test_compact_matrix_is_40_class_small_seed599():
     cfg = _load("compact_s.yaml")
     base = cfg["base"]
     experiments = cfg["experiments"]
@@ -44,11 +44,11 @@ def test_compact_matrix_is_60_class_small_seed599():
     assert base["model_cfg"]["attention_backend"] == "flash"
 
     names = {str(exp["exp_name"]) for exp in experiments}
-    assert len({name for name in names if "tls60" in name}) == 7
-    assert len({name for name in names if "quic60" in name}) == 7
+    assert len({name for name in names if "tls40" in name}) == 7
+    assert len({name for name in names if "quic40" in name}) == 7
     assert all(int(exp["seed"]) == 599 for exp in experiments)
-    assert all("datazoo_tls60_s_protocol_small_sampled.csv" in exp["data_csv"] or
-               "datazoo_quic60_s_protocol_small_sampled.csv" in exp["data_csv"]
+    assert all("datazoo_tls40_s_protocol_small.csv" in exp["data_csv"] or
+               "datazoo_quic40_s_protocol_small.csv" in exp["data_csv"]
                for exp in experiments)
     models = {str(exp["model"]).lower() for exp in experiments}
     assert models == {
@@ -86,30 +86,31 @@ def test_ablation_matrix_is_three_by_two_open_set():
             (exp["exp_name"] for exp in experiments)} == {
                 "hsta_cm_no_conv", "hsta_cm_no_mamba", "hsta_cm_no_attention",
             }
-    assert all("60_s_protocol_small_sampled.csv" in exp["data_csv"] for exp in experiments)
+    assert all("40_s_protocol_small.csv" in exp["data_csv"] for exp in experiments)
 
 
-def test_large_variant_matrix_has_three_candidates_per_dataset():
-    cfg = _load("hsta_cm_large_variants.yaml")
+def test_structure_screen_has_four_candidates_per_dataset():
+    cfg = _load("hsta_cm_structure_s.yaml")
     base = cfg["base"]
     experiments = cfg["experiments"]
-    assert len(experiments) == 6
+    assert len(experiments) == 8
     assert base["seed"] == 599
-    assert base["epochs"] == 100
-    assert base["patience"] == 15
-    assert base["batch_size"] == 4096
+    assert base["epochs"] == 30
+    assert base["patience"] == 5
+    assert base["batch_size"] == 256
     assert base["model_cfg"]["dim"] == 256
-    assert base["model_cfg"]["use_packet_position"] is True
-    assert base["model_cfg"]["use_branch_type"] is True
-    assert all("protocol_large_sampled.csv" in exp["data_csv"] for exp in experiments)
+    assert all("protocol_small.csv" in exp["data_csv"] for exp in experiments)
     assert all(exp["train_unknown"] is True for exp in experiments)
-    prefixes = {"hsta_cm_multiscale", "hsta_cm_dual_plus_dft", "hsta_cm_tri_multiscale_dft"}
-    assert {exp["exp_name"].rsplit("_tls60_s_large_seed599", 1)[0]
-            for exp in experiments if "tls60" in exp["exp_name"]} == prefixes
-    assert {exp["exp_name"].rsplit("_quic60_s_large_seed599", 1)[0]
-            for exp in experiments if "quic60" in exp["exp_name"]} == prefixes
+    prefixes = {
+        "hsta_cm_base", "hsta_cm_dual_multiscale", "hsta_cm_dual_dft",
+        "hsta_cm_tri_multiscale_dft",
+    }
+    assert {exp["exp_name"].rsplit("_tls40_s_seed599", 1)[0]
+            for exp in experiments if "tls40" in exp["exp_name"]} == prefixes
+    assert {exp["exp_name"].rsplit("_quic40_s_seed599", 1)[0]
+            for exp in experiments if "quic40" in exp["exp_name"]} == prefixes
 
 
 def test_legacy_hsta_registry_name_is_removed():
     with pytest.raises(ValueError):
-        build_model("hsta", input_dim=3, num_classes=61, seq_len=30, cfg={})
+        build_model("hsta", input_dim=3, num_classes=41, seq_len=30, cfg={})
