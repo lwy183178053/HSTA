@@ -17,6 +17,10 @@ SERVICE_COLUMNS = {
     "Domains": "domains",
 }
 SPLITS = ("train", "val", "test")
+CSV_FIELDS = (
+    "flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source",
+    "original_app", "source_group", "noise_family", "capture_date", "source_flow_id",
+)
 
 
 def _project_path(path: str | Path, project_root: str | Path) -> str:
@@ -112,6 +116,33 @@ DEFAULT_NOISE_FAMILIES = {
     "val": "shuffle_spike_v2",
     "test": "mixture_burst_v3",
 }
+
+
+def resolve_datazoo_workers(workers: int | str | None) -> int:
+    """Resolve the DataZoo loader worker setting.
+
+    HDF5 reads are CPU-bound, but an unbounded process count often makes the
+    shared source disk slower and can duplicate large buffers.  ``auto``
+    therefore uses all but one logical CPU up to a conservative configurable
+    cap.  An explicit integer remains unchanged for reproducible runs.
+    """
+    if workers is None:
+        return 0
+    if isinstance(workers, str):
+        value = workers.strip().lower()
+        if value == "auto":
+            cpu_count = os.cpu_count() or 1
+            try:
+                cap = int(os.environ.get("HSTA_MAX_DATAZOO_WORKERS", "8"))
+            except ValueError:
+                cap = 8
+            cap = max(1, cap)
+            return max(1, min(max(1, cpu_count - 1), cap))
+        workers = int(value)
+    workers = int(workers)
+    if workers < 0:
+        raise ValueError("datazoo workers must be >= 0 or 'auto'")
+    return workers
 
 
 def _to_np(x):
@@ -549,6 +580,7 @@ def build_dataset(
     temporal_split: bool = True,
 ):
     CESNET_TLS22, CESNET_QUIC22, DatasetConfig, AppSelection, ValidationApproach, DataLoaderOrder = _imports()
+    workers = resolve_datazoo_workers(workers)
     root = Path(project_root).resolve()
     size = size.upper()
     if name == "tls":
@@ -857,19 +889,17 @@ def export_csv(
     split_caps.update(max_per_class_by_split or {})
     packet_rows = 0
     with out_csv.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=[
-                "flow_id", "label", "pkt_index", "size", "direction", "delta_time", "split", "source",
-                "original_app", "source_group", "noise_family",
-                "capture_date", "source_flow_id",
-            ],
-        )
-        writer.writeheader()
+        # The hot path writes one row per packet.  ``DictWriter.writerow``
+        # performs a Python dict lookup for every field and becomes dominant
+        # for large exports.  Keep the stable schema, but pass tuples to the
+        # C csv writer and flush one batch at a time.
+        writer = csv.writer(handle)
+        writer.writerow(CSV_FIELDS)
         for split in ["train", "val", "test"]:
             split_cap = split_caps.get(split)
             flow_index = 0
             for batch_index, batch in enumerate(tqdm(get_loader(dataset, split), desc=f"export {split}")):
+                output_rows = []
                 for ppi_one, label_raw in iter_batch(batch):
                     source_records = getattr(dataset, "_hsta_source_records", {}).get(split, [])
                     cursor = getattr(dataset, "_hsta_source_cursor", {}).get(split, 0)
@@ -928,25 +958,27 @@ def export_csv(
                     split_counts[split][label] += 1
                     source_counts[split][source_key] += 1
                     for pkt_index in range(min(seq_len, len(sizes))):
-                        writer.writerow(
-                            {
-                                "flow_id": flow_id,
-                                "label": label,
-                                "pkt_index": pkt_index,
-                                "size": float(sizes[pkt_index]),
-                                "direction": float(dirs[pkt_index]) if pkt_index < len(dirs) else 1.0,
-                                "delta_time": float(times[pkt_index]) if pkt_index < len(times) else 0.0,
-                                "split": split,
-                                "source": "datazoo",
-                                "original_app": original_app,
-                                "source_group": source_group,
-                                "noise_family": "",
-                                "capture_date": capture_date,
-                                "source_flow_id": source_flow_id,
-                            }
+                        output_rows.append(
+                            (
+                                flow_id,
+                                label,
+                                pkt_index,
+                                float(sizes[pkt_index]),
+                                float(dirs[pkt_index]) if pkt_index < len(dirs) else 1.0,
+                                float(times[pkt_index]) if pkt_index < len(times) else 0.0,
+                                split,
+                                "datazoo",
+                                original_app,
+                                source_group,
+                                "",
+                                capture_date,
+                                source_flow_id,
+                            )
                         )
                         packet_rows += 1
                         packet_row_counts[split][label] += 1
+                if output_rows:
+                    writer.writerows(output_rows)
                 expected_unknown = {
                     (group, app)
                     for app, group in source_map.items()
@@ -1042,7 +1074,8 @@ def append_synthetic_unknown(
     if not fieldnames:
         raise ValueError(f"{csv_path} has no CSV header")
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.writer(handle)
+        output_rows = []
         for split in ("train", "val", "test"):
             for flow_index in range(counts[split]):
                 flow_id = f"synthetic_{split}_{flow_index}"
@@ -1073,23 +1106,27 @@ def append_synthetic_unknown(
                 flow[:, 1] = rng.choice(direction_values, size=seq_len)
                 flow[:, 2] = np.clip(np.abs(flow[:, 2]), 0.0, None)
                 for pkt_index, (size, direction, delta_time) in enumerate(flow):
-                    writer.writerow(
-                        {
-                            "flow_id": flow_id,
-                            "label": UNKNOWN_LABEL,
-                            "pkt_index": pkt_index,
-                            "size": float(size),
-                            "direction": float(direction),
-                            "delta_time": float(delta_time),
-                            "split": split,
-                            "source": "synthetic_noise",
-                            "original_app": f"synthetic_noise::{family}",
-                            "source_group": f"noise_{split}",
-                            "noise_family": family,
-                            "capture_date": "",
-                            "source_flow_id": f"synthetic::{split}::{family}::{flow_index}",
-                        }
-                    )
+                    row = {
+                        "flow_id": flow_id,
+                        "label": UNKNOWN_LABEL,
+                        "pkt_index": pkt_index,
+                        "size": float(size),
+                        "direction": float(direction),
+                        "delta_time": float(delta_time),
+                        "split": split,
+                        "source": "synthetic_noise",
+                        "original_app": f"synthetic_noise::{family}",
+                        "source_group": f"noise_{split}",
+                        "noise_family": family,
+                        "capture_date": "",
+                        "source_flow_id": f"synthetic::{split}::{family}::{flow_index}",
+                    }
+                    output_rows.append(tuple(row.get(field, "") for field in fieldnames))
+                    if len(output_rows) >= 4096:
+                        writer.writerows(output_rows)
+                        output_rows.clear()
+        if output_rows:
+            writer.writerows(output_rows)
     append_synthetic_unknown.last_metadata = {
         "noise_families": noise_families,
         "source_groups": {split: f"noise_{split}" for split in ("train", "val", "test")},
@@ -1177,12 +1214,18 @@ def limit_real_unknown_ratio(csv_path: str | Path, ratio: float = 0.30, seed: in
     temp = path.with_suffix(path.suffix + ".tmp")
     with path.open("r", newline="", encoding="utf-8-sig") as src, temp.open("w", newline="", encoding="utf-8") as dst:
         reader = csv.DictReader(src)
-        writer = csv.DictWriter(dst, fieldnames=fields)
-        writer.writeheader()
+        writer = csv.writer(dst)
+        writer.writerow(fields)
+        output_rows = []
         for row in reader:
             if str(row.get("label", "")).lower() == UNKNOWN_LABEL and str(row.get("flow_id", "")) not in keep.get(str(row.get("split", "")).lower(), set()):
                 continue
-            writer.writerow(row)
+            output_rows.append(tuple(row.get(field, "") for field in fields))
+            if len(output_rows) >= 4096:
+                writer.writerows(output_rows)
+                output_rows.clear()
+        if output_rows:
+            writer.writerows(output_rows)
     os.replace(temp, path)
     return {"requested_by_split": budgets, "actual_by_split": {s: len(keep[s]) for s in SPLITS},
             "available_by_split": {s: int(sum(app_counts[s].values())) for s in SPLITS}}

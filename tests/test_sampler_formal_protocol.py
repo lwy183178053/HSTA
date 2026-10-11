@@ -1,11 +1,19 @@
 from data.sampler import (
     TEMPORAL_DATE_SPLITS,
     limit_real_unknown_ratio,
+    resolve_datazoo_workers,
     scan_processed_csv_counts,
     scan_processed_source_counts,
     select_available_top_apps,
 )
 import csv
+
+
+def test_auto_datazoo_workers_is_cpu_aware_and_capped(monkeypatch):
+    monkeypatch.setattr("data.sampler.os.cpu_count", lambda: 16)
+    monkeypatch.setenv("HSTA_MAX_DATAZOO_WORKERS", "4")
+    assert resolve_datazoo_workers("auto") == 4
+    assert resolve_datazoo_workers(0) == 0
 
 
 def test_quic_windows_are_14_2_12_days():

@@ -19,6 +19,16 @@ def parse_size(value: str):
     return int(value)
 
 
+def parse_workers(value: str):
+    value = str(value).strip().lower()
+    if value == "auto":
+        return value
+    workers = int(value)
+    if workers < 0:
+        raise argparse.ArgumentTypeError("workers must be >= 0 or 'auto'")
+    return workers
+
+
 def ensure_datazoo_package():
     try:
         import cesnet_datazoo  # noqa: F401
@@ -58,7 +68,8 @@ def main():
     parser.add_argument("--init-test-size", default="all")
     parser.add_argument("--datazoo-batch-size", type=int, default=64)
     parser.add_argument("--datazoo-test-batch-size", type=int, default=64)
-    parser.add_argument("--datazoo-workers", type=int, default=0)
+    parser.add_argument("--datazoo-workers", type=parse_workers, default=0,
+                        help="DataZoo HDF5 loader processes; use auto for CPU-aware capped parallelism")
     parser.add_argument("--max-export-batches", type=int, default=None)
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--out-csv", default=None)
