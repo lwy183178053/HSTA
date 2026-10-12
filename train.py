@@ -295,6 +295,7 @@ def _attention_runtime_metadata(model, cfg: dict, device: str, use_amp: bool) ->
         ),
         "amp_enabled": bool(use_amp),
         "amp_dtype": "float16" if use_amp else "float32",
+        "mamba_blocks_fp32": any(module.__class__.__name__ == "MambaBlock" for module in model.modules()),
         "device": str(device),
         "cuda_device": torch.cuda.get_device_name(0) if str(device).startswith("cuda") else "",
     }

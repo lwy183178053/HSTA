@@ -26,12 +26,15 @@ def main():
     records = []
     for name, classes, cfg in [
         ("hsta-cm", 61, {}), ("hsta-cm", 60, {}),
-        ("30pkttcnet-adapted", 60, {"depth": 5}),
-        ("netmamba-adapted", 60, {"depth": 5}),
-        ("srvit", 60, {"depth": 4}), ("trafficaudio", 60, {}), ("bpf-gnn", 60, {}),
+        ("30pkttcnet-adapted", 60, {"channels": 300, "depth": 4, "classifier_hidden": 300}),
+        ("netmamba-adapted", 60, {"dim": 292, "depth": 4, "max_len": 30}),
+        ("srvit", 60, {"dim": 192, "depth": 4, "mlp_ratio": 3}),
+        ("trafficaudio", 60, {"dim": 416}),
+        ("bpf-gnn", 60, {"dim": 664, "graph_depths": [1, 2, 1]}),
     ]:
         model = build_model(name, 3, classes, 30, {"dim": 256, **cfg}).cuda().train()
-        with torch.autocast("cuda", dtype=torch.float16):
+        use_amp = name != "netmamba-adapted"
+        with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
             out = model(torch.randn(args.batch_size, 30, 3, device="cuda"))
             loss = torch.nn.functional.cross_entropy(out, torch.arange(args.batch_size, device="cuda") % classes)
         assert out.shape == (args.batch_size, classes) and torch.isfinite(loss)

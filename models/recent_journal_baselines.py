@@ -299,21 +299,27 @@ class BPFGNN(nn.Module):
         dropout: float = 0.15,
         top_k: int = 4,
         num_subflows: int = 5,
+        graph_depths: tuple[int, int, int] = (2, 2, 2),
     ):
         super().__init__()
         if input_dim <= 0 or num_classes <= 0 or dim <= 0:
             raise ValueError("input_dim, num_classes, and dim must be positive")
         if top_k < 0 or num_subflows <= 0:
             raise ValueError("top_k must be non-negative and num_subflows must be positive")
+        if len(graph_depths) != 3 or any(int(depth) < 0 for depth in graph_depths):
+            raise ValueError("graph_depths must contain three non-negative values")
+        if sum(int(depth) for depth in graph_depths) <= 0:
+            raise ValueError("graph_depths must retain at least one graph block")
         self.input_dim = input_dim
         self.top_k = int(top_k)
         self.num_subflows = int(num_subflows)
+        self.graph_depths = tuple(int(depth) for depth in graph_depths)
         self.adapted_note = BPF_GNN_ADAPTED_NOTE
         self.scalar_proj = nn.Linear(1, dim)
         self.feature_type = nn.Parameter(torch.zeros(1, 1, input_dim, dim))
-        self.feature_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(2)])
-        self.packet_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(2)])
-        self.flow_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(2)])
+        self.feature_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(self.graph_depths[0])])
+        self.packet_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(self.graph_depths[1])])
+        self.flow_blocks = nn.ModuleList([ResidualGraphBlock(dim, dropout) for _ in range(self.graph_depths[2])])
         self.pool_score = nn.Linear(dim, 1)
         self.head = nn.Sequential(
             nn.LayerNorm(dim),

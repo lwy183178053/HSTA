@@ -28,6 +28,18 @@ def test_formal_matrix_and_single_dataset_per_protocol():
         if name == "compact_s.yaml":
             assert sum(r["train_unknown"] for r in runs) == 6
             assert {r["model"] for r in runs} == {"hsta-cm", "30pkttcnet-adapted", "netmamba-adapted", "srvit", "trafficaudio", "bpf-gnn"}
+            by_name = {r["exp_name"].removesuffix("_seed599"): r for r in runs if r["seed"] == 599}
+            for key in ("tcnet_tls60", "tcnet_quic60"):
+                assert by_name[key]["model_cfg"] == {"channels": 300, "depth": 4, "classifier_hidden": 300}
+            for key in ("netmamba_tls60", "netmamba_quic60"):
+                assert by_name[key]["model_cfg"] == {"dim": 292, "depth": 4, "max_len": 30}
+                assert by_name[key]["amp"] is False
+            for key in ("srvit_tls60", "srvit_quic60"):
+                assert by_name[key]["model_cfg"] == {"dim": 192, "depth": 4, "mlp_ratio": 3}
+            for key in ("trafficaudio_tls60", "trafficaudio_quic60"):
+                assert by_name[key]["model_cfg"]["dim"] == 416
+            for key in ("bpfgnn_tls60", "bpfgnn_quic60"):
+                assert by_name[key]["model_cfg"] == {"dim": 664, "graph_depths": [1, 2, 1]}
         else:
             assert all(r["train_unknown"] for r in runs)
             assert all(len(r["model_cfg"]) == 1 for r in runs)

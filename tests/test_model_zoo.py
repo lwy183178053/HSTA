@@ -46,14 +46,22 @@ def test_full_model_and_ablation_token_layouts():
 def test_256_dim_cuda_forward_backward(flags, tokens, classes):
     model = build_model("hsta-cm", 3, classes, 30, flags).cuda().train()
     seen = []
+    mamba_dtypes = []
     hook = model.token_fusion.register_forward_pre_hook(lambda module, args: seen.append(args[0].shape[1]))
+    mamba_hooks = [
+        module.register_forward_hook(lambda module, args, output: mamba_dtypes.append(output.dtype))
+        for module in model.modules() if module.__class__.__name__ == "MambaBlock"
+    ]
     with torch.autocast("cuda", dtype=torch.float16):
         logits = model(torch.randn(2, 30, 3, device="cuda"))
         loss = torch.nn.functional.cross_entropy(logits, torch.tensor([0, classes - 1], device="cuda"))
     assert logits.shape == (2, classes) and torch.isfinite(loss)
     loss.backward()
     hook.remove()
+    for mamba_hook in mamba_hooks:
+        mamba_hook.remove()
     assert seen == [tokens]
+    assert all(dtype == torch.float32 for dtype in mamba_dtypes)
     assert model.head.weight.grad is not None
     assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
     for branch in (model.temporal, model.graph_blocks, model.dft_spatial):
@@ -68,3 +76,31 @@ def test_256_dim_cuda_forward_backward(flags, tokens, classes):
 def test_obsolete_registry_names_rejected(name):
     with pytest.raises(ValueError):
         build_model(name, 3, 61, 30)
+
+
+def test_bpf_graph_depths_can_be_bounded_for_capacity_matched_run():
+    model = build_model(
+        "bpf-gnn", 3, 61, 30,
+        {"dim": 664, "graph_depths": [1, 2, 1]},
+    )
+    assert model.graph_depths == (1, 2, 1)
+    assert len(model.feature_blocks) + len(model.packet_blocks) + len(model.flow_blocks) == 4
+
+
+@pytest.mark.skipif(importlib.util.find_spec("mamba_ssm") is None, reason="mamba_ssm required")
+def test_formal_model_configs_are_depth_and_capacity_matched():
+    candidates = [
+        ("hsta-cm", {"dim": 256, "depth": 2}, 2_294_089),
+        ("30pkttcnet-adapted", {"channels": 300, "depth": 4, "classifier_hidden": 300}, 2_278_261),
+        ("netmamba-adapted", {"dim": 292, "depth": 4, "max_len": 30}, 2_294_305),
+        ("srvit", {"dim": 192, "depth": 4, "mlp_ratio": 3}, 2_203_837),
+        ("trafficaudio", {"dim": 416}, 2_210_893),
+        ("bpf-gnn", {"dim": 664, "graph_depths": [1, 2, 1]}, 2_258_990),
+    ]
+    counts = []
+    for name, cfg, _ in candidates:
+        model = build_model(name, 3, 61, 30, cfg)
+        counts.append(sum(parameter.numel() for parameter in model.parameters()))
+    for actual, (_, _, expected) in zip(counts, candidates):
+        assert actual == expected
+    assert max(counts) / min(counts) < 1.05

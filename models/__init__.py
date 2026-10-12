@@ -66,9 +66,11 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             n_mfcc=_int(cfg, "n_mfcc", 8),
         )
     if model in {"bpf_gnn", "bpfgnn"}:
+        graph_depths = tuple(int(value) for value in cfg.get("graph_depths", (2, 2, 2)))
         return BPFGNN(
             input_dim, num_classes, dim=dim, dropout=dropout,
             top_k=_int(cfg, "top_k", 4), num_subflows=_int(cfg, "num_subflows", 5),
+            graph_depths=graph_depths,
         )
     raise ValueError(
         f"Unknown model {name!r}; choose HSTA-CM, 30pktTCNET, NetMamba, SRViT, TrafficAudio or BPF-GNN"

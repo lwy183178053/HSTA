@@ -21,7 +21,12 @@ class MambaBlock(nn.Module):
         self.drop = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.drop(self.mixer(self.norm(x)))
+        # The official selective-scan path is numerically unstable under CUDA
+        # autocast in this benchmark. Keep this block in FP32 even when the
+        # surrounding model uses AMP for its other operators.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x = x.float()
+            return x + self.drop(self.mixer(self.norm(x)))
 
 
 class MambaClassifier(nn.Module):
