@@ -104,6 +104,11 @@ def _train_accumulated_batch(
                 with _autocast(bool(use_amp and cuda_device)):
                     logits = model(x_micro)
                     loss = criterion(logits, y_micro)
+                    auxiliary_loss = getattr(model, "auxiliary_loss", None)
+                    if auxiliary_loss is not None:
+                        extra_loss = auxiliary_loss(y_micro)
+                        if extra_loss is not None:
+                            loss = loss + extra_loss
                 if not torch.isfinite(loss):
                     optimizer.zero_grad(set_to_none=True)
                     return float(loss.detach().item()), microbatch_size
