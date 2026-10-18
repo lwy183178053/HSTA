@@ -37,16 +37,13 @@ def _metric_columns(frame: pd.DataFrame) -> dict[str, str]:
 
 def main() -> None:
     path = Path("results/formal60/all_results.csv")
-    ablation_path = Path("results/hsta_cm_ablation_formal60/all_results.csv")
     if not path.exists():
         raise FileNotFoundError(f"缺少 {path}，请先运行 scripts/run_wsl_experiments.sh main")
     frame = pd.read_csv(path)
-    if ablation_path.exists():
-        frame = pd.concat([frame, pd.read_csv(ablation_path)], ignore_index=True, sort=False)
 
     names = {
-        "hsta-cm": "HSTA-CM",
-        "hsta_cm": "HSTA-CM",
+        "mvif-net": "MVIF-Net",
+        "mvif_net": "MVIF-Net",
         "30pkttcnet-adapted": "30pktTCNET",
         "30pkttcnet": "30pktTCNET",
         "netmamba-adapted": "NetMamba",
@@ -63,7 +60,6 @@ def main() -> None:
     exp = frame.get("exp_name", pd.Series("", index=frame.index)).astype(str)
     frame["variant"] = "closed"
     frame.loc[exp.str.contains("open", case=False), "variant"] = "open"
-    frame.loc[exp.str.contains("no_mamba|no_gnn|no_dft|no_attention", case=False, regex=True), "variant"] = "ablation"
     frame["dataset"] = exp.str.extract(r"((?:tls|quic)60)", expand=False).fillna("")
     frame["seed"] = pd.to_numeric(frame.get("seed"), errors="coerce")
 

@@ -1,10 +1,10 @@
 # Project Environment and Directory Conventions
 
-Read this file before running experiments or reorganizing the code repository.
+Read this file before running experiments or reorganizing the repository.
 
 ## Windows Python
 
-Do not invoke `python` directly from PowerShell. Use the project Anaconda interpreter:
+Do not invoke `python` directly from PowerShell. Use the project interpreter:
 
 ```powershell
 & 'D:\ProgramData\anaconda3\envs\mybase\python.exe' <script or module>
@@ -14,47 +14,51 @@ The validated Windows environment uses Python 3.13.5.
 
 ## WSL and CUDA
 
-Training and Mamba/CUDA experiments use `Ubuntu-22.04` and `/opt/traffic-mamba-venv`:
+Training and Mamba/FlashAttention checks use `Ubuntu-22.04` and
+`/opt/traffic-mamba-venv`:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python <command>"
 ```
 
-`docker-desktop` and `traffic-ubuntu-22.04` are not supported project environments. Always specify `wsl -d Ubuntu-22.04` explicitly.
+Do not use `docker-desktop` or `traffic-ubuntu-22.04` for this project.
 
 ## Directory conventions
 
-- Lightweight numeric results, training histories, run configurations, and result documentation (CSV/JSON/YAML/Markdown) under `results/` may be committed for backup. Mark snapshots from unfinished runs as partial; do not present them as final comparisons.
-- Logs, local datasets, checkpoints, prediction dumps, and binary experiment artifacts remain local and must not be committed.
-- Manuscript, figures, source documents, and submission materials are stored in the sibling directory `E:\AllProject\流量分析python项目\paper`, outside this code repository. Code changes must not recreate a manuscript directory inside the repository.
-- Do not commit checkpoints, raw traffic, credentials, or local environment files.
+- Lightweight result snapshots, histories, configurations, and Markdown under
+  `results/` may be committed.
+- Logs, datasets, checkpoints, prediction dumps, and binary artifacts remain
+  local and must not be committed.
+- Manuscripts and figures live in the sibling directory
+  `E:\AllProject\流量分析python项目\paper`.
+- Historical HSTA-CM and structure-search artifacts are outside the active
+  repository at
+  `E:\AllProject\流量分析python项目\HSTA_archive\pre_mvif_cleanup_2026-10-18`.
 
-## Experiment groups
+## Active experiment scope
 
-- Formal 60-class comparisons: `results/formal60`
-- HSTA-CM ablations: `results/hsta_cm_ablation_formal60`
-- Efficiency tests: `results/efficiency_benchmark`
+- Formal comparisons: `results/formal60`
+- Active configuration: `configs/compact_s.yaml`
+- Model: `MVIF-Net` (`mvif-net`), plus five adapted baselines
+- Current results: 30 completed baseline runs and MVIF-Net TLS open seed599
+- Pending results: MVIF-Net TLS open seeds 5009/813 and QUIC open seeds 599/5009/813
 
-## Current model and execution scope
+MVIF-Net uses two Mamba blocks, two packet-graph blocks, two bounded residual
+DFT convolutions with kernels `1/3`, branch normalization and gate, one
+FlashAttention block, and `30+30+16=76` tokens. Do not reintroduce the archived
+auxiliary-loss, time-CNN, residual-mode, or branch-removal switches into the
+active model.
 
-- HSTA-CM uses two residual Mamba layers, two residual packet graph layers, and a two-layer DFT-CNN with kernels `1/3`; hidden dimension is 256 and the full layout is `30+30+16=76` tokens.
-- The graph uses only within-flow sequential and feature-similarity relations. Packet/frequency positions and three branch-type embeddings precede a single FlashAttention block.
-- Formal branch ablations are `no_mamba`, `no_gnn`, and `no_dft`. `no_attention` is optional and excluded from the formal 18-run ablation matrix.
-- Currently only the five baselines across two datasets and three seeds (30 runs) are authorized to continue. Do not start the revised HSTA-CM, ablations, or efficiency experiments until the user asks. Code checks and smoke tests are allowed; do not interrupt the existing baseline queue.
+The user has authorized the next queue to run the five pending MVIF-Net TLS and
+QUIC seeds. Keep the queue resumable and do not rerun completed results.
 
 ## Common entry points
 
-```bash
-bash scripts/run_formal_pipeline.sh
-bash scripts/run_wsl_experiments.sh main
-bash scripts/run_wsl_experiments.sh ablation
-bash scripts/run_wsl_experiments.sh efficiency
-```
-
-The Windows `scripts/run_formal_pipeline.ps1` entry defaults to export and audit only; `-RunTraining` explicitly opts into training. The shell full pipeline includes training. Individual experiment commands assume the final CSVs already exist and passed audit. Respect the current execution scope above before invoking any training entry point.
-
-Windows environment check:
-
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check_environment.ps1
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python -m pytest -q"
+wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python run_experiments.py --config configs/compact_s.yaml --resume"
 ```
+
+The `--only` option on `run_experiments.py` is the supported way to launch only
+the missing MVIF-Net seeds.

@@ -1,54 +1,72 @@
-# HSTA-CM 与对照模型架构
+# MVIF-Net Architecture
 
-## 深度口径
+## Input and depth convention
 
-本项目将“层数”统一报告为**串行主干块数**，不按底层算子数量计数。残差卷积块内部两次 `Conv1d` 仍算一个主干块；投影层、归一化、池化和分类头不计入主干深度。多分支结构分别披露各路径深度，不将并行分支深度相加。公平性约束为每条特征主干路径最多 4 个主干块。
+Each flow is represented by the first 30 packets and three standardized
+features per packet: packet length, direction, and inter-packet interval. The
+model input is `[B, 30, 3]` and the hidden width is 256.
 
-该定义让不同类型网络可读地比较深度，但不等同于相同计算图长度或 FLOPs。参数量也只作为容量尺度控制；正式比较还需同时披露模型输入适配、参数量、训练轮数、吞吐和峰值显存。
+Depth is reported as the number of serial feature blocks on a branch. Input
+projections, normalization, pooling, residual sub-operators, and the final
+classifier are not counted as additional backbone blocks. The three parallel
+branches are reported separately.
 
-## HSTA-CM
+## MVIF-Net: three interactive views
 
-输入为 `[B,30,3]`：包长、方向、包间隔。隐藏维度 256。三个并行主干各两层，随后通过一个注意力融合块：
+| View | Main blocks | Tokens | Role |
+|---|---:|---:|---|
+| Mamba | 2 residual Mamba blocks | 30 | packet order and state dependency |
+| Packet graph | 2 residual message-passing blocks | 30 | adjacent and feature-similarity packet relations |
+| DFT-CNN | residual Conv1d with kernels 1 and 3 | 16 | local structure over rFFT frequency bins |
+| Fusion | 1 FlashAttention block | 76 total | cross-view token interaction |
 
-| 路径 | 串行主干块 | token 数 | 建模目标 |
-| --- | ---: | ---: | --- |
-| Mamba 时序路径 | 2 个残差 Mamba 块 | 30 | 包顺序和状态依赖 |
-| 包关系图路径 | 2 个残差图消息传递块 | 30 | 单流内局部顺序和非局部特征相似关系 |
-| DFT 卷积路径 | 2 个残差频谱卷积块，核 1、3 | 16 | rFFT 频点及相邻频点结构 |
-| 融合路径 | 1 个 FlashAttention 块 | 76 | 跨视图 token 交互 |
+The Mamba path keeps its internal residuals and an outer residual around the
+two blocks. The graph path has separate local and nonlocal message projections;
+each block adds its update through a learnable scale constrained to `(0, 0.5)`.
+The DFT path keeps real and imaginary parts of the 16-point one-sided rFFT,
+projects six channels to 256 dimensions, and applies two residual convolution
+blocks with the same bounded scale mechanism.
 
-三条编码路径合并为 `30+30+16=76` 个 token。对 30 点实值输入，单边 rFFT 输出 16 个频点；频域表示保留实部和虚部。DFT 在包序号轴上计算，包间隔并不恒定，因此频点不应被解释为真实时间周期。
+Each branch receives its own position encoding and branch-type embedding. A
+LayerNorm plus masked mean produces one summary per branch. The three summaries
+are passed through a small MLP and Softmax to obtain branch weights, which
+reweight the branch tokens before concatenation.
 
-包位置编码用于 Mamba 和图 token；频率位置编码用于 DFT token；另加三个分支类型编码。融合后执行 PyTorch FlashAttention、LayerNorm 和分类头。open 模型输出 61 类（60 个已知类加 unknown），closed 输出 60 类。
+The resulting 76 tokens pass through token fusion, one FlashAttention block
+with four heads, and LayerNorm. The output is split back into 30/30/16 token
+groups, pooled with the corresponding masks, averaged across views, and sent
+to a single linear classifier. Open-set experiments use 61 outputs (60 known
+classes plus unknown); closed-set variants, when run, use 60 outputs.
 
-图只在每条流内部由标准化后的包特征构建。相邻包与自环形成局部关系；排除自身和直接相邻位置后，按特征距离选取非局部邻居。图不使用标签、来源元数据或跨流信息。补零包应从构图和有效 token 池化中屏蔽。
+## Packet graph
 
-三条路径共享同一份输入，只提供不同的结构归纳偏置，不能视为独立观测。它们是否互补由 `no_mamba`、`no_gnn`、`no_dft` 消融验证。
+The graph is built independently for each flow from standardized packet
+features. Self-loops and adjacent packet positions form the sequential graph.
+For nonlocal structure, direct neighbors are excluded and the four nearest
+packets by feature distance are connected symmetrically. No labels, source
+metadata, or cross-flow edges are used. Padding packets are excluded from
+messages and masked pooling.
 
-## 五个适配基线
+## Adapted comparison models
 
-以下为新一轮容量匹配配置，参数量已由模型实例化核算并应写入每个运行结果。主干深度遵循每条串行路径最多 4 块的上限。
+The five comparison models use the same `[30, 3]` input and class protocol.
+They are adapted implementations rather than complete reproductions of the
+original papers' data pipelines or pretraining procedures.
 
-| 模型 | 主干块数 | 建议宽度与结构 | 预计参数量 |
-| --- | --- | --- | ---: |
-| 30pktTCNET-adapted | 4 个残差时序卷积块 | `channels=300`，分类层宽度 300；块内卷积算子不单独计层 | 2.278M |
-| NetMamba-adapted | 4 个 Mamba 块 | `dim=292`；selective block FP32，整个模型 AMP 关闭 | 2.294M |
-| SRViT-adapted | 4 个注意力块 | `dim=192`、`mlp_ratio=3` | 2.204M |
-| TrafficAudio-adapted | CNN 3 层、BiGRU 2 层 | `dim=416`；CNN 与 BiGRU 是并行特征路径，分别计深度 | 2.211M |
-| BPF-GNN-adapted | 共 4 个图块 | `dim=664`；feature/packet/flow 图层级深度为 `(1,2,1)` | 2.259M |
+| Model | Main configuration | Approx. parameters |
+|---|---|---:|
+| 30pktTCNET-adapted | `channels=300`, classifier width 300, depth 4 | 2.278M |
+| NetMamba-adapted | `dim=292`, depth 4, AMP disabled | 2.294M |
+| SRViT-adapted | `dim=192`, `mlp_ratio=3`, depth 4 | 2.204M |
+| TrafficAudio-adapted | `dim=416`, CNN/BiGRU parallel paths | 2.211M |
+| BPF-GNN-adapted | `dim=664`, graph depths `(1,2,1)` | 2.259M |
 
-TrafficAudio 的 3 层 CNN 与 2 层 BiGRU 属于并行路径，任一条路径均不超过 4 块；BPF-GNN 的四个块分布在三级图层级。SRViT 的一个注意力块内部包含注意力与 FFN 子层，但按一个 Transformer 主干块计数。
+MVIF-Net has a larger parameter count because its branch gate, bounded residual
+scales, and three-view fusion are part of the selected final structure. Actual
+parameter counts are recorded in every result file.
 
-所有基线适配到相同的 `[30,3]` 包级侧信道特征和相同类别划分。它们保留相应模型的核心计算思想，但不是原论文的数据输入、特征工程或预训练流程的完整复现。`adapted` 标记必须保留。
+## Numerical precision
 
-## 精度模式
-
-- HSTA-CM 中的 Mamba selective block 在 autocast 外以 FP32 执行；其余兼容算子可使用 AMP。
-- NetMamba 全模型关闭 AMP，以避免 selective scan 在混合精度下出现非有限训练损失。
-- 其余基线和非 Mamba 算子使用 AMP。
-
-AMP 是训练数值策略，需在论文复现设置中披露。NetMamba 使用 FP32 会增加时间和显存；这项差异不靠隐藏设置消除，而以固定优化器、数据、停止准则和 seed 管理，并报告实测成本。
-
-## 参数量解释
-
-当前核算的参数量分别为：HSTA-CM 2.294M、30pktTCNET-adapted 2.278M、NetMamba-adapted 2.294M、SRViT-adapted 2.204M、TrafficAudio-adapted 2.211M、BPF-GNN-adapted 2.259M。容量差距约在 HSTA-CM 的 4.1% 内。训练结果表仍应记录实际实例参数量；不同算子的计算量、内存访问、序列复杂度和优化难度仍然不同，需另列推理效率。
+Mamba selective blocks run in FP32 outside autocast. The surrounding MVIF-Net
+operators and the adapted baselines use AMP where supported. NetMamba keeps
+AMP disabled for its complete model.

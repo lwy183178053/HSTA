@@ -1,4 +1,4 @@
-"""正式模型及五个基线的 CUDA 前后向验收，并验证 HSTA 的 batch 4096。"""
+"""正式 MVIF-Net 及五个基线的 CUDA 前后向验收。"""
 import json
 import sys
 import argparse
@@ -18,14 +18,15 @@ def main():
     )
     parser.add_argument(
         "--check-large-batch", action="store_true",
-        help="also run the optional batch-4096 HSTA check",
+        help="also run the optional batch-4096 MVIF-Net check",
     )
     args = parser.parse_args()
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
     records = []
     for name, classes, cfg in [
-        ("hsta-cm", 61, {}), ("hsta-cm", 60, {}),
+        ("mvif-net", 61, {"graph_k": 4, "branch_residual_init": 0.1, "residual_scale_max": 0.5}),
+        ("mvif-net", 60, {"graph_k": 4, "branch_residual_init": 0.1, "residual_scale_max": 0.5}),
         ("30pkttcnet-adapted", 60, {"channels": 300, "depth": 4, "classifier_hidden": 300}),
         ("netmamba-adapted", 60, {"dim": 292, "depth": 4, "max_len": 30}),
         ("srvit", 60, {"dim": 192, "depth": 4, "mlp_ratio": 3}),
@@ -52,7 +53,10 @@ def main():
         print(json.dumps({"torch": torch.__version__, "mamba": mamba_ssm.__version__,
                           "gpu": torch.cuda.get_device_name(), "passed": records}, ensure_ascii=False))
         return
-    model = build_model("hsta-cm", 3, 61, 30, {"dim": 256}).cuda().train()
+    model = build_model(
+        "mvif-net", 3, 61, 30,
+        {"dim": 256, "graph_k": 4, "branch_residual_init": 0.1, "residual_scale_max": 0.5},
+    ).cuda().train()
     try:
         torch.cuda.reset_peak_memory_stats()
         x = torch.randn(4096, 30, 3, device="cuda")
@@ -63,7 +67,7 @@ def main():
         assert out.shape == (4096, 61) and torch.isfinite(loss)
         loss.backward()
         assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
-        records.append({"model": "hsta-cm", "classes": 61, "parameters": sum(p.numel() for p in model.parameters()),
+        records.append({"model": "mvif-net", "classes": 61, "parameters": sum(p.numel() for p in model.parameters()),
                         "tokens": model.token_count, "batch_size": 4096,
                         "peak_allocated_bytes": torch.cuda.max_memory_allocated()})
     finally:

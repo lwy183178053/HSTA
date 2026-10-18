@@ -295,7 +295,7 @@ def partition_unknown_apps(
 
     The split is deterministic, identity-disjoint, and independent of flow
     sampling.  ``support`` applications are the only real unknown identities
-    eligible for HSTA-CM-open training; validation and test identities are
+    eligible for MVIF-Net open-set training; validation and test identities are
     held out from training entirely.  A small candidate pool is handled by
     assigning at least one application to each non-empty group when possible.
     """

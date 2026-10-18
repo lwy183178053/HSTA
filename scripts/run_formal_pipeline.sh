@@ -45,10 +45,6 @@ else
 fi
 update main
 bash scripts/run_wsl_experiments.sh main
-update ablation
-bash scripts/run_wsl_experiments.sh ablation
-update efficiency
-bash scripts/run_wsl_experiments.sh efficiency
 update summary
 python scripts/summarize_compact_results.py
 update completed

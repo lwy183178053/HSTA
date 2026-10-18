@@ -15,8 +15,8 @@ from experiment_config import expand_seeded_experiments
 def _completed_result(cfg: dict):
     output_dir = Path(cfg.get("output_dir", "results")) / cfg["exp_name"]
     summary_path = output_dir / "summary.csv"
-    best_path = output_dir / "best.pt"
-    if not summary_path.exists() or not best_path.exists():
+    metrics_path = output_dir / "metrics.json"
+    if not summary_path.exists() or not metrics_path.exists():
         return None
     df = pd.read_csv(summary_path)
     return None if df.empty else df.iloc[0].to_dict()
@@ -49,7 +49,7 @@ def _merge_experiment(base: dict, exp: dict) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="运行 60 类正式主比较或组件消融。")
+    parser = argparse.ArgumentParser(description="运行 60 类 MVIF-Net 正式主比较。")
     parser.add_argument("--config", default="configs/compact_s.yaml")
     parser.add_argument("--resume", dest="resume", action="store_true", default=True)
     parser.add_argument("--no-resume", dest="resume", action="store_false")

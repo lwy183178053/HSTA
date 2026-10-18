@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from .adapted_sota import NetMambaAdapted, PktTCNetAdapted
-from .hsta_cm import HSTACM
-from .hsta_cm_gated import HSTACMGated
+from .mvif_net import MVIFNet
 from .recent_journal_baselines import BPFGNN, SRViT, TrafficAudio
 
 
@@ -26,39 +25,16 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
     dim = _int(cfg, "dim", 256)
     dropout = _float(cfg, "dropout", 0.1)
     depth = _int(cfg, "depth", 2)
-    if model in {"hsta_cm", "hsta-cm"}:
-        return HSTACM(
+    if model in {"mvif_net", "mvif-net"}:
+        return MVIFNet(
             input_dim, num_classes, dim=dim, depth=depth,
             heads=_int(cfg, "heads", 4), mlp_ratio=_int(cfg, "mlp_ratio", 4),
             dropout=dropout, d_state=_int(cfg, "d_state", 16),
             d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
             max_len=seq_len,
-            use_mamba=bool(cfg.get("use_mamba", True)),
-            use_gnn=bool(cfg.get("use_gnn", True)),
-            use_dft=bool(cfg.get("use_dft", True)),
-            use_attention=bool(cfg.get("use_attention", True)),
             graph_k=_int(cfg, "graph_k", 4),
-        )
-    if model in {"hsta_cm_gated", "hsta-cm-gated"}:
-        return HSTACMGated(
-            input_dim, num_classes, dim=dim, depth=depth,
-            heads=_int(cfg, "heads", 4), mlp_ratio=_int(cfg, "mlp_ratio", 4),
-            dropout=dropout, d_state=_int(cfg, "d_state", 16),
-            d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
-            max_len=seq_len, graph_k=_int(cfg, "graph_k", 4),
-            use_gate=bool(cfg.get("use_gate", True)),
-            use_aux=bool(cfg.get("use_aux", True)),
-            graph_residual_mode=str(cfg.get("graph_residual_mode", "scaled")),
-            dft_residual_mode=str(cfg.get("dft_residual_mode", "scaled")),
-            aux_loss_weight=_float(cfg, "aux_loss_weight", 0.1),
             branch_residual_init=_float(cfg, "branch_residual_init", 0.1),
-            residual_scale_mode=str(cfg.get("residual_scale_mode", "raw")),
-            residual_scale_max=_float(cfg, "residual_scale_max", 1.0),
-            mamba_outer_residual=bool(cfg.get("mamba_outer_residual", True)),
-            graph_use_local=bool(cfg.get("graph_use_local", True)),
-            use_dft=bool(cfg.get("use_dft", True)),
-            use_time_cnn=bool(cfg.get("use_time_cnn", False)),
-            time_cnn_residual_mode=str(cfg.get("time_cnn_residual_mode", "scaled")),
+            residual_scale_max=_float(cfg, "residual_scale_max", 0.5),
         )
     if model in {"30pkttcnet_adapted", "pkt_tcnet_adapted", "tcnet30pkt_adapted"}:
         return PktTCNetAdapted(
@@ -95,8 +71,8 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             graph_depths=graph_depths,
         )
     raise ValueError(
-        f"Unknown model {name!r}; choose HSTA-CM, HSTA-CM-Gated, 30pktTCNET, NetMamba, SRViT, TrafficAudio or BPF-GNN"
+        f"Unknown model {name!r}; choose MVIF-Net, 30pktTCNET, NetMamba, SRViT, TrafficAudio or BPF-GNN"
     )
 
 
-__all__ = ["HSTACM", "HSTACMGated", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]
+__all__ = ["MVIFNet", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]
