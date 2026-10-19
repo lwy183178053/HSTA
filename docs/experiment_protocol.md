@@ -1,7 +1,7 @@
-# 60-Class Open-Set Experiment Protocol
+# 60-Class MVIF-Net Experiment Protocol
 
-This protocol covers the active MVIF-Net and baseline comparison on
-CESNET-TLS22-S and CESNET-QUIC22-S.
+This protocol covers the active MVIF-Net open/closed comparison and five
+baseline models on CESNET-TLS22-S and CESNET-QUIC22-S.
 
 ## Data and labels
 
@@ -11,8 +11,13 @@ identities, and generated noise families are isolated across splits. Dataset
 export and audit are performed before training.
 
 Open-set MVIF-Net training uses 60 known classes plus an unknown output. The
-five adapted baselines use the same known-class protocol and input shape, with
-their original training behavior preserved in the active configuration.
+closed-set MVIF-Net head has 60 outputs and trains only on known classes.
+Unknown flows remain in validation and test for measuring threshold-based
+rejection, so this is a closed-set training head under the shared open-world
+evaluation protocol, not a test split with unknown examples removed. The five
+adapted baselines use the same known-class training protocol and input shape,
+with their original behavior preserved in the active configuration. Each
+protocol has one MVIF-Net open-set and one MVIF-Net closed-set configuration.
 
 ## Metrics
 
@@ -36,17 +41,16 @@ known-class Macro-F1 for scheduling and early stopping, effective batch size
 fallbacks use gradient accumulation and are recorded in the result metadata.
 
 Mamba selective blocks run in FP32 outside autocast. NetMamba disables AMP for
-the complete model. Other compatible operators use AMP. FlashAttention is
-required for the formal MVIF-Net path and its actual backend is recorded.
+the complete model. Other compatible operators use AMP. Attention uses PyTorch
+scaled dot-product attention with a key-padding mask; PyTorch selects a
+compatible backend automatically.
 
 ## Current status
 
-The five adapted baselines have completed all TLS/QUIC runs for the three
-seeds. MVIF-Net currently has one completed TLS open-set run at seed 599. The
-remaining two TLS seeds and all three QUIC open-set seeds are now configured
-for the resumable queue. Until those runs finish, the existing MVIF-Net result
-must remain explicit as a partial state and must not be summarized as a final
-three-seed mean or standard deviation.
+The 30 adapted-baseline runs remain valid. The active MVIF-Net results are
+stored separately from those baseline snapshots. Generate the final 42-run
+summary only after verifying all twelve MVIF-Net and thirty baseline
+`summary.csv` and `metrics.json` files.
 
 The former HSTA-CM structure matrix, gate/auxiliary-loss search, residual
 search, time-domain CNN search, and efficiency benchmark are historical

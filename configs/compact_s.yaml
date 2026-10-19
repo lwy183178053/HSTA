@@ -1,7 +1,8 @@
-# 60 类正式开放集实验；三个独立训练种子，固定同一份数据。
+# MVIF-Net open/closed runs plus the five completed baseline comparisons.
+# MVIF-Net outputs are isolated from the baseline snapshots in formal60.
 seeds: [599, 5009, 813]
 base:
-  output_dir: results/formal60
+  output_dir: results/mvif_net_masked_global_pooling
   seed: 599
   epochs: 100
   patience: 15
@@ -33,7 +34,6 @@ base:
     d_state: 16
     d_conv: 4
     expand: 2
-    attention_backend: flash
 experiments:
   - exp_name: mvif_net_open_tls60
     model: mvif-net
@@ -51,55 +51,81 @@ experiments:
       graph_k: 4
       branch_residual_init: 0.1
       residual_scale_max: 0.5
+  - exp_name: mvif_net_closed_tls60
+    model: mvif-net
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
+    train_unknown: false
+    model_cfg:
+      graph_k: 4
+      branch_residual_init: 0.1
+      residual_scale_max: 0.5
+  - exp_name: mvif_net_closed_quic60
+    model: mvif-net
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
+    train_unknown: false
+    model_cfg:
+      graph_k: 4
+      branch_residual_init: 0.1
+      residual_scale_max: 0.5
   - exp_name: tcnet_tls60
     model: 30pkttcnet-adapted
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {channels: 300, depth: 4, classifier_hidden: 300}
   - exp_name: netmamba_tls60
     model: netmamba-adapted
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     amp: false
     model_cfg: {dim: 292, depth: 4, max_len: 30}
   - exp_name: srvit_tls60
     model: srvit
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 192, depth: 4, mlp_ratio: 3}
   - exp_name: trafficaudio_tls60
     model: trafficaudio
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 416, n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}
   - exp_name: bpfgnn_tls60
     model: bpf-gnn
     data_csv: data/processed/datazoo_tls60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 664, graph_depths: [1, 2, 1]}
   - exp_name: tcnet_quic60
     model: 30pkttcnet-adapted
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {channels: 300, depth: 4, classifier_hidden: 300}
   - exp_name: netmamba_quic60
     model: netmamba-adapted
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     amp: false
     model_cfg: {dim: 292, depth: 4, max_len: 30}
   - exp_name: srvit_quic60
     model: srvit
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 192, depth: 4, mlp_ratio: 3}
   - exp_name: trafficaudio_quic60
     model: trafficaudio
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 416, n_fft: 32, win_length: 32, hop_length: 8, n_mels: 16, n_mfcc: 8}
   - exp_name: bpfgnn_quic60
     model: bpf-gnn
     data_csv: data/processed/datazoo_quic60_s_protocol.csv
     train_unknown: false
+    output_dir: results/formal60
     model_cfg: {dim: 664, graph_depths: [1, 2, 1]}

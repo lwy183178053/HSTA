@@ -35,15 +35,20 @@ def main():
     ]:
         model = build_model(name, 3, classes, 30, {"dim": 256, **cfg}).cuda().train()
         use_amp = name != "netmamba-adapted"
+        x = torch.randn(args.batch_size, 30, 3, device="cuda")
+        if name == "mvif-net":
+            x[0, -3:] = 0.0
+            if args.batch_size > 1:
+                x[1, -6:] = 0.0
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            out = model(torch.randn(args.batch_size, 30, 3, device="cuda"))
+            out = model(x)
             loss = torch.nn.functional.cross_entropy(out, torch.arange(args.batch_size, device="cuda") % classes)
         assert out.shape == (args.batch_size, classes) and torch.isfinite(loss)
         loss.backward()
         assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
         for module in model.modules():
             if isinstance(module, FlashSelfAttention):
-                assert module.actual_attention_backend == "flash"
+                assert module.attention_backend == "sdpa_auto"
         records.append({"model": name, "classes": classes,
                         "parameters": sum(p.numel() for p in model.parameters()),
                         "tokens": getattr(model, "token_count", None), "batch_size": args.batch_size})

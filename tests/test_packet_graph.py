@@ -16,6 +16,11 @@ class _IdentityMamba(nn.Module):
         return x
 
 
+class _IdentityAttention(nn.Module):
+    def forward(self, x, key_padding_mask=None):
+        return x
+
+
 def _graph_model(monkeypatch):
     module = importlib.import_module("models.mvif_net")
     monkeypatch.setattr(module, "MambaBlock", _IdentityMamba)
@@ -26,7 +31,7 @@ def _graph_model(monkeypatch):
         30,
         {"dim": 32, "graph_k": 4, "dropout": 0.0},
     ).eval()
-    model.attention = nn.Identity()
+    model.attention = _IdentityAttention()
     return model
 
 

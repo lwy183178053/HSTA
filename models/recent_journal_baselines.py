@@ -24,10 +24,10 @@ BPF_GNN_ADAPTED_NOTE = (
 
 
 class FlashPositionSelfAttention(nn.Module):
-    """FlashAttention wrapper used by the SRViT-adapted reconstruction.
+    """Position-aware SDPA wrapper used by the SRViT-adapted reconstruction.
 
-    This project requires PyTorch FlashAttention only. Packet positions are
-    injected by the learned embedding in ``SRViT`` before this module.
+    Packet positions are injected by the learned embedding in ``SRViT`` before
+    this module; PyTorch selects a compatible SDPA backend at runtime.
     """
 
     def __init__(self, dim: int, heads: int, max_len: int, dropout: float):

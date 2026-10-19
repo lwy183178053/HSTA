@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class MambaBlock(nn.Module):
-    """Official mamba-ssm block with LayerNorm, residual, and dropout."""
+    """Official mamba-ssm mixer with an optional block-local residual."""
 
     def __init__(
         self,
@@ -12,6 +12,7 @@ class MambaBlock(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         dropout: float = 0.1,
+        residual: bool = True,
     ):
         super().__init__()
         from mamba_ssm import Mamba as OfficialMamba
@@ -19,6 +20,7 @@ class MambaBlock(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.mixer = OfficialMamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
         self.drop = nn.Dropout(dropout)
+        self.residual = bool(residual)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # The official selective-scan path is numerically unstable under CUDA
@@ -26,7 +28,8 @@ class MambaBlock(nn.Module):
         # surrounding model uses AMP for its other operators.
         with torch.autocast(device_type=x.device.type, enabled=False):
             x = x.float()
-            return x + self.drop(self.mixer(self.norm(x)))
+            update = self.drop(self.mixer(self.norm(x)))
+            return x + update if self.residual else update
 
 
 class MambaClassifier(nn.Module):

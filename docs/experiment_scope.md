@@ -10,15 +10,16 @@ epochs, patience 15, effective batch size 4096, and evaluation batch size 512.
 
 ## Active comparison matrix
 
-The active `configs/compact_s.yaml` expands to 36 planned runs:
+The active `configs/compact_s.yaml` expands to 42 planned runs:
 
 | Group | Models | Dataset | Seeds | Planned runs |
 |---|---|---|---:|---:|
-| Formal comparison | MVIF-Net plus five adapted baselines | TLS/QUIC open-set runs | 599/5009/813 | 36 |
+| MVIF-Net | one open-set and one closed-set configuration per protocol | TLS/QUIC | 599/5009/813 | 12 |
+| Baselines | five adapted comparison models | TLS/QUIC closed-set runs | 599/5009/813 | 30 |
 
-The 30 baseline runs are already complete. The active results directory also
-contains the completed MVIF-Net TLS open run for seed 599. The remaining two
-TLS seeds and all three QUIC seeds are configured for the next resumable queue.
+The five baseline result sets remain in `results/formal60`. The active MVIF-Net
+results are isolated in `results/mvif_net_masked_global_pooling` so superseded
+MVIF-Net rows cannot be mistaken for the corrected topology.
 
 There are no active branch ablations, efficiency queues, time-domain CNN
 searches, or auxiliary-loss experiments. Those artifacts are outside the
@@ -37,7 +38,6 @@ are recorded in each `metrics.json`.
 
 ## Result status
 
-`results/formal60/all_results.csv` currently contains 31 rows: 30 completed
-baseline rows and one MVIF-Net TLS seed599 row. MVIF-Net TLS and QUIC results
-must not be reported as final three-seed means or standard deviations until
-their respective three seeds finish under the same protocol.
+The formal matrix is 42 runs: 30 baselines plus twelve MVIF-Net runs. Open-set
+and closed-set results must be reported separately; closed-set runs use a
+60-class head, while open-set runs use a 61-class head with threshold metrics.

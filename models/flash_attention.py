@@ -1,9 +1,4 @@
-"""Strict PyTorch FlashAttention components used by the compact benchmark.
-
-The project deliberately requires the CUDA FlashAttention backend.  Falling
-back to a hand-written softmax implementation would make results incomparable,
-so an unsupported device or dtype raises a clear error.
-"""
+"""Transformer attention components built on PyTorch scaled dot-product attention."""
 
 from __future__ import annotations
 
@@ -23,48 +18,38 @@ class FlashSelfAttention(nn.Module):
         self.dropout = float(dropout)
         self.qkv = nn.Linear(dim, 3 * dim)
         self.out_proj = nn.Linear(dim, dim)
-        self.attention_backend = "flash"
-        self.actual_attention_backend = "flash"
-        self.flash_attention_enforced = True
+        self.attention_backend = "sdpa_auto"
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if not x.is_cuda:
-            raise RuntimeError(
-                "PyTorch FlashAttention requires a CUDA tensor with FP16 or BF16; "
-                "run the experiment in the supported WSL CUDA environment."
-            )
-        if x.dtype not in (torch.float16, torch.bfloat16):
-            autocast_cuda = torch.is_autocast_enabled("cuda")
-            if autocast_cuda:
-                x = x.to(torch.get_autocast_dtype("cuda"))
-            else:
-                raise RuntimeError(
-                    "PyTorch FlashAttention requires a CUDA tensor with FP16 or BF16; "
-                    "enable CUDA autocast for the model forward."
-                )
-        if not hasattr(torch.backends.cuda, "is_flash_attention_available") or not torch.backends.cuda.is_flash_attention_available():
-            raise RuntimeError("This PyTorch build does not provide the FlashAttention backend")
+    def forward(
+        self,
+        x: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         batch, seq_len, _ = x.shape
+        attn_mask = None
+        if key_padding_mask is not None:
+            if key_padding_mask.shape != (batch, seq_len):
+                raise ValueError(
+                    "key_padding_mask must have shape "
+                    f"({batch}, {seq_len}), got {tuple(key_padding_mask.shape)}"
+                )
+            if key_padding_mask.dtype != torch.bool:
+                raise TypeError("key_padding_mask must have dtype torch.bool")
+            if key_padding_mask.device != x.device:
+                raise ValueError("key_padding_mask and x must be on the same device")
+            # SDPA uses True for allowed keys; key_padding_mask uses True for padding.
+            attn_mask = (~key_padding_mask)[:, None, None, :]
+
         qkv = self.qkv(x).reshape(batch, seq_len, 3, self.heads, self.head_dim)
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
-        # The explicit backend context prevents SDPA from silently selecting
-        # the math or memory-efficient implementation.
-        try:
-            from torch.nn.attention import SDPBackend, sdpa_kernel
-
-            with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                y = F.scaled_dot_product_attention(
-                    q, k, v,
-                    dropout_p=self.dropout if self.training else 0.0,
-                    is_causal=False,
-                )
-        except ImportError:  # PyTorch 2.0/2.1 spelling
-            with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-                y = F.scaled_dot_product_attention(
-                    q, k, v,
-                    dropout_p=self.dropout if self.training else 0.0,
-                    is_causal=False,
-                )
+        y = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout if self.training else 0.0,
+            is_causal=False,
+        )
         y = y.transpose(1, 2).reshape(batch, seq_len, self.dim)
         return self.out_proj(y)
 
@@ -84,6 +69,10 @@ class FlashAttentionBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.norm1(x))
+    def forward(
+        self,
+        x: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        x = x + self.attn(self.norm1(x), key_padding_mask=key_padding_mask)
         return x + self.ffn(self.norm2(x))

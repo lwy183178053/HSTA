@@ -14,7 +14,7 @@ The validated Windows environment uses Python 3.13.5.
 
 ## WSL and CUDA
 
-Training and Mamba/FlashAttention checks use `Ubuntu-22.04` and
+Training and Mamba/SDPA CUDA checks use `Ubuntu-22.04` and
 `/opt/traffic-mamba-venv`:
 
 ```powershell
@@ -37,20 +37,26 @@ Do not use `docker-desktop` or `traffic-ubuntu-22.04` for this project.
 
 ## Active experiment scope
 
-- Formal comparisons: `results/formal60`
+- Formal comparisons: `results/mvif_net_masked_global_pooling` for MVIF-Net and `results/formal60` for baselines
 - Active configuration: `configs/compact_s.yaml`
 - Model: `MVIF-Net` (`mvif-net`), plus five adapted baselines
-- Current results: 30 completed baseline runs and MVIF-Net TLS open seed599
-- Pending results: MVIF-Net TLS open seeds 5009/813 and QUIC open seeds 599/5009/813
+- Current results: 30 completed baseline runs plus the resumable MVIF-Net open/closed queue
+- MVIF-Net queue: TLS/QUIC open and closed, each with seeds 599/5009/813
 
-MVIF-Net uses two Mamba blocks, two packet-graph blocks, two bounded residual
-DFT convolutions with kernels `1/3`, branch normalization and gate, one
-FlashAttention block, and `30+30+16=76` tokens. Do not reintroduce the archived
+MVIF-Net uses two directly stacked Mamba blocks without branch residuals, two
+packet-graph blocks with one bounded inter-layer residual, and DFT-CNN blocks
+with kernels `1/3` and one bounded inter-layer residual. The two learnable
+branch residual scales start at `0.1` and are bounded to `(0, 0.5)`. A
+pre-concatenation branch gate weights the normalized views; the model then uses
+`30+30+16=76` tokens and one masked SDPA Transformer block. That block has
+residual connections around self-attention and its feed-forward sublayer.
+PyTorch selects a compatible attention backend automatically. Post-attention
+readout is a global masked mean over valid tokens. Do not reintroduce the archived
 auxiliary-loss, time-CNN, residual-mode, or branch-removal switches into the
 active model.
 
-The user has authorized the next queue to run the five pending MVIF-Net TLS and
-QUIC seeds. Keep the queue resumable and do not rerun completed results.
+The user has authorized the MVIF-Net TLS/QUIC open and closed queue. Keep the
+queue resumable and do not rerun completed results.
 
 ## Common entry points
 
@@ -60,5 +66,5 @@ wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/H
 wsl -d Ubuntu-22.04 -- bash -lc "cd /mnt/e/AllProject/流量分析python项目/HSTA && source /opt/traffic-mamba-venv/bin/activate && python run_experiments.py --config configs/compact_s.yaml --resume"
 ```
 
-The `--only` option on `run_experiments.py` is the supported way to launch only
-the missing MVIF-Net seeds.
+The `--only` option on `run_experiments.py` is the supported way to launch a
+selected subset of the MVIF-Net open/closed seeds.

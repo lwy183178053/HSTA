@@ -13,15 +13,52 @@ from models.flash_attention import FlashAttentionBlock, FlashSelfAttention
 class _IdentityMamba(torch.nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
+        self.residual = kwargs["residual"]
 
     def forward(self, x):
         return x
 
 
-def test_flash_attention_is_strict():
-    attention = FlashSelfAttention(32, heads=4)
-    with pytest.raises(RuntimeError, match="FlashAttention"):
-        attention(torch.randn(2, 30, 32))
+def test_scaled_dot_product_attention_applies_key_padding_mask():
+    attention = FlashSelfAttention(4, heads=1, dropout=0.0).eval()
+    with torch.no_grad():
+        attention.qkv.weight.zero_()
+        attention.qkv.bias.zero_()
+        attention.qkv.weight[8:12].copy_(torch.eye(4))
+        attention.out_proj.weight.copy_(torch.eye(4))
+        attention.out_proj.bias.zero_()
+
+    x = torch.tensor([[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]])
+    changed = x.clone()
+    changed[:, 1] = 100.0
+    key_padding_mask = torch.tensor([[False, True, False]])
+
+    output = attention(x, key_padding_mask=key_padding_mask)
+    changed_output = attention(changed, key_padding_mask=key_padding_mask)
+    unmasked_output = attention(changed)
+
+    torch.testing.assert_close(output[:, [0, 2]], changed_output[:, [0, 2]])
+    assert not torch.allclose(changed_output[:, [0, 2]], unmasked_output[:, [0, 2]])
+
+
+def test_flash_attention_block_forwards_key_padding_mask():
+    class _CaptureAttention(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.mask = None
+
+        def forward(self, x, key_padding_mask=None):
+            self.mask = key_padding_mask.detach().clone()
+            return x
+
+    block = FlashAttentionBlock(8, heads=2, dropout=0.0).eval()
+    capture = _CaptureAttention()
+    block.attn = capture
+    mask = torch.tensor([[False, True, False]])
+
+    block(torch.randn(1, 3, 8), key_padding_mask=mask)
+
+    assert torch.equal(capture.mask, mask)
 
 
 def test_mvif_net_cpu_forward_and_bounded_scales(monkeypatch):
@@ -40,16 +77,15 @@ def test_mvif_net_cpu_forward_and_bounded_scales(monkeypatch):
             "residual_scale_max": 0.5,
         },
     ).train()
-    model.attention = torch.nn.Identity()
-
     assert model.token_count == 76
     assert model.branch_names == ("mamba", "packet_graph", "dft_conv")
     assert model.packet_position.shape == (1, 30, 32)
     assert model.frequency_position.shape == (1, 16, 32)
     assert model.branch_type.shape == (3, 32)
     assert len(model.temporal) == len(model.graph_blocks) == 2
+    assert all(not block.residual for block in model.temporal)
     assert [block.conv.kernel_size for block in model.dft_spatial] == [(1,), (3,)]
-    assert isinstance(model.attention, torch.nn.Identity)
+    assert isinstance(model.attention, FlashAttentionBlock)
     assert not hasattr(model, "use_aux")
 
     x = torch.randn(4, 30, 3)
@@ -59,8 +95,8 @@ def test_mvif_net_cpu_forward_and_bounded_scales(monkeypatch):
     assert model.last_branch_gate is not None
     assert model.last_branch_gate.shape == (4, 3)
     assert torch.allclose(model.last_branch_gate.sum(dim=-1), torch.ones(4), atol=1e-6)
-    for block in list(model.graph_blocks) + list(model.dft_spatial):
-        scale = block.effective_scale().detach()
+    for scale in (model.effective_graph_residual_scale(), model.effective_dft_residual_scale()):
+        scale = scale.detach()
         assert 0.0 < float(scale) < 0.5
 
     loss = torch.nn.functional.cross_entropy(logits, y)
@@ -82,8 +118,8 @@ def test_mvif_net_formal_layout_and_attention():
     assert model.token_count == 76
     assert isinstance(model.attention, FlashAttentionBlock)
     assert model.head.out_features == 61
-    assert model.layout[3:6] == ("bounded_residual_scale", "branch_norm_gate", "no_aux")
-    assert sum(parameter.numel() for parameter in model.parameters()) == 2_441_479
+    assert model.layout[3:6] == ("interlayer_residual_scale_0.1_to_0.5", "branch_norm_gate", "no_aux")
+    assert sum(parameter.numel() for parameter in model.parameters()) == 2_441_477
 
 
 @pytest.mark.parametrize("name", ["legacy_model", "gru", "transformer", "unsupported_branch"])
