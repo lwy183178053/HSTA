@@ -1,0 +1,56 @@
+# Isolated 12-run MVIF-Net study using the key-masked attention and global
+# masked-mean readout implementation.
+seeds: [599, 5009, 813]
+base:
+  output_dir: results/mvif_net_masked_global_pooling
+  seed: 599
+  epochs: 100
+  patience: 15
+  batch_size: 4096
+  eval_batch_size: 512
+  oom_microbatch_fallbacks: [2048, 1024, 512]
+  lr: 0.0005
+  weight_decay: 0.0001
+  lr_scheduler: reduce_on_plateau
+  lr_scheduler_metric: val_known_macro_f1
+  lr_scheduler_mode: max
+  lr_factor: 0.5
+  lr_patience: 2
+  min_lr: 0.000001
+  early_stop_metric: val_known_macro_f1
+  early_stop_mode: max
+  early_stop_min_delta: 0.0005
+  seq_len: 30
+  amp: true
+  num_workers: 0
+  calibrate_reject_threshold: true
+  reject_threshold_quantile: 0.95
+  model_cfg:
+    dim: 256
+    depth: 2
+    heads: 4
+    mlp_ratio: 4
+    dropout: 0.15
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    graph_k: 4
+    branch_residual_init: 0.1
+    residual_scale_max: 0.5
+experiments:
+  - exp_name: mvif_net_open_tls60
+    model: mvif-net
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
+    train_unknown: true
+  - exp_name: mvif_net_open_quic60
+    model: mvif-net
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
+    train_unknown: true
+  - exp_name: mvif_net_closed_tls60
+    model: mvif-net
+    data_csv: data/processed/datazoo_tls60_s_protocol.csv
+    train_unknown: false
+  - exp_name: mvif_net_closed_quic60
+    model: mvif-net
+    data_csv: data/processed/datazoo_quic60_s_protocol.csv
+    train_unknown: false

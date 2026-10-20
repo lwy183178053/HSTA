@@ -19,6 +19,16 @@ results/formal60/*
 !results/formal60/*/history.csv
 !results/formal60/all_results.csv
 !results/formal60/formal60_summary.csv
+!results/formal60/formal60_source_groups.csv
+!results/formal60/formal60_index.md
+!results/mvif_net_masked_global_pooling/
+results/mvif_net_masked_global_pooling/*
+!results/mvif_net_masked_global_pooling/all_results.csv
+!results/mvif_net_masked_global_pooling/config.yaml
+!results/mvif_net_masked_global_pooling/*/
+!results/mvif_net_masked_global_pooling/*/summary.csv
+!results/mvif_net_masked_global_pooling/*/history.csv
+!results/mvif_net_masked_global_pooling/*/metrics.json
 results/**/*.pt
 results/**/*.pth
 results/**/*.ckpt
