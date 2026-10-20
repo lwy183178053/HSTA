@@ -43,6 +43,10 @@ Do not use `docker-desktop` or `traffic-ubuntu-22.04` for this project.
 - Current results: 30 completed baseline runs plus the resumable MVIF-Net open/closed queue
 - MVIF-Net queue: TLS/QUIC open and closed, each with seeds 599/5009/813
 
+Every model-structure change must be reflected in `docs/architecture.md`.
+Keep the formal MVIF-Net diagram and active experiment-variant diagrams
+consistent with the implementation.
+
 MVIF-Net uses two directly stacked Mamba blocks without branch residuals, two
 packet-graph blocks with one bounded inter-layer residual, and DFT-CNN blocks
 with kernels `1/3` and one bounded inter-layer residual. The two learnable

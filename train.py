@@ -300,7 +300,10 @@ def _attention_runtime_metadata(model, cfg: dict, device: str, use_amp: bool) ->
         ),
         "amp_enabled": bool(use_amp),
         "amp_dtype": "float16" if use_amp else "float32",
-        "mamba_blocks_fp32": any(module.__class__.__name__ == "MambaBlock" for module in model.modules()),
+        "mamba_blocks_fp32": any(
+            module.__class__.__name__ in {"MambaBlock", "MambaPlusMixer"}
+            for module in model.modules()
+        ),
         "device": str(device),
         "cuda_device": torch.cuda.get_device_name(0) if str(device).startswith("cuda") else "",
     }
@@ -354,9 +357,13 @@ def train_one(cfg: dict):
     train_batch_size = int(cfg.get("batch_size", 256))
     eval_batch_size = int(cfg.get("eval_batch_size", min(train_batch_size, 512)))
     fallback_sizes = [int(size) for size in cfg.get("oom_microbatch_fallbacks", [])]
-    microbatch_candidates = list(dict.fromkeys([train_batch_size] + fallback_sizes))
-    if train_batch_size <= 0 or eval_batch_size <= 0 or any(size <= 0 for size in fallback_sizes):
-        raise ValueError("batch_size, eval_batch_size and OOM fallback sizes must be positive")
+    preferred_microbatch_size = int(cfg.get("train_microbatch_size", train_batch_size))
+    microbatch_candidates = list(dict.fromkeys([preferred_microbatch_size] + fallback_sizes))
+    if (
+        train_batch_size <= 0 or eval_batch_size <= 0 or preferred_microbatch_size <= 0
+        or any(size <= 0 for size in fallback_sizes)
+    ):
+        raise ValueError("batch_size, eval_batch_size, train_microbatch_size and OOM fallback sizes must be positive")
     print(
         f"[batch] effective={train_batch_size}, eval={eval_batch_size}, "
         f"microbatch candidates={microbatch_candidates} (CUDA OOM fallback)"

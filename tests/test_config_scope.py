@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_formal_matrix_has_open_closed_mvif_and_five_baselines():
-    assert {path.name for path in (ROOT / "configs").glob("*.yaml")} == {"compact_s.yaml"}
     cfg = yaml.safe_load((ROOT / "configs" / "compact_s.yaml").read_text(encoding="utf-8"))
     runs = expand_seeded_experiments(cfg)
     assert _expected_experiments() == {run["exp_name"] for run in runs}
@@ -70,3 +69,18 @@ def test_formal_matrix_has_open_closed_mvif_and_five_baselines():
     assert len(baseline_runs) == 30
     assert all(not run["train_unknown"] for run in baseline_runs)
     assert {run["output_dir"] for run in baseline_runs} == {"results/formal60"}
+
+
+def test_bimamba_plus_probe_isolated_to_one_seed():
+    cfg_path = ROOT / "configs" / "mvif_bimamba_plus_seed599.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    runs = expand_seeded_experiments(cfg)
+
+    assert cfg["seeds"] == [599]
+    assert len(runs) == 4
+    assert {run["model"] for run in runs} == {"mvif-bimamba-plus"}
+    assert {run["seed"] for run in runs} == {599}
+    assert cfg["base"]["output_dir"] == "results/mvif_bimamba_plus_seed599"
+    assert cfg["base"]["batch_size"] == 4096
+    assert cfg["base"]["train_microbatch_size"] == 512
+    assert {run["train_unknown"] for run in runs} == {True, False}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .adapted_sota import NetMambaAdapted, PktTCNetAdapted
+from .mvif_bimamba_plus import MVIFBiMambaPlus
 from .mvif_net import MVIFNet
 from .recent_journal_baselines import BPFGNN, SRViT, TrafficAudio
 
@@ -33,6 +34,16 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
             d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
             max_len=seq_len,
             graph_k=_int(cfg, "graph_k", 4),
+            branch_residual_init=_float(cfg, "branch_residual_init", 0.1),
+            residual_scale_max=_float(cfg, "residual_scale_max", 0.5),
+        )
+    if model in {"mvif_bimamba_plus", "mvif-bimamba-plus"}:
+        return MVIFBiMambaPlus(
+            input_dim, num_classes, dim=dim, depth=depth,
+            heads=_int(cfg, "heads", 4), mlp_ratio=_int(cfg, "mlp_ratio", 4),
+            dropout=dropout, d_state=_int(cfg, "d_state", 16),
+            d_conv=_int(cfg, "d_conv", 4), expand=_int(cfg, "expand", 2),
+            max_len=seq_len, graph_k=_int(cfg, "graph_k", 4),
             branch_residual_init=_float(cfg, "branch_residual_init", 0.1),
             residual_scale_max=_float(cfg, "residual_scale_max", 0.5),
         )
@@ -75,4 +86,4 @@ def build_model(name: str, input_dim: int, num_classes: int, seq_len: int, cfg: 
     )
 
 
-__all__ = ["MVIFNet", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]
+__all__ = ["MVIFNet", "MVIFBiMambaPlus", "PktTCNetAdapted", "NetMambaAdapted", "SRViT", "TrafficAudio", "BPFGNN", "build_model"]
